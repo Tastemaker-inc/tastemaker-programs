@@ -1,0 +1,291 @@
+{
+  "address": "2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo",
+  "metadata": {
+    "name": "taste_token",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "TasteMaker $TASTE platform token (Token-2022, 9 decimals)"
+  },
+  "instructions": [
+    {
+      "name": "burn",
+      "discriminator": [
+        116,
+        110,
+        29,
+        56,
+        107,
+        219,
+        42,
+        93
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "mint",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "freeze_mint_authority",
+      "discriminator": [
+        251,
+        26,
+        67,
+        194,
+        126,
+        140,
+        31,
+        157
+      ],
+      "accounts": [
+        {
+          "name": "mint_authority",
+          "signer": true
+        },
+        {
+          "name": "mint",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_mint",
+      "discriminator": [
+        209,
+        42,
+        195,
+        4,
+        129,
+        85,
+        209,
+        44
+      ],
+      "accounts": [
+        {
+          "name": "mint_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  116,
+                  101,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "treasury_authority"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "mint_to",
+      "discriminator": [
+        241,
+        34,
+        48,
+        186,
+        37,
+        179,
+        123,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "mint_authority",
+          "signer": true
+        },
+        {
+          "name": "mint",
+          "writable": true
+        },
+        {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "mint_to_treasury",
+      "discriminator": [
+        11,
+        33,
+        44,
+        19,
+        40,
+        162,
+        76,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "mint_authority",
+          "signer": true
+        },
+        {
+          "name": "mint",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "ExceedsMaxSupply",
+      "msg": "Mint would exceed max supply"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidMintAuthority",
+      "msg": "Signer is not the mint authority"
+    }
+  ]
+}

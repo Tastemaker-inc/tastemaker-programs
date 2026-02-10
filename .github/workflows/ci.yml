@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  SOLANA_VERSION: "1.18.22"
+  ANCHOR_VERSION: "0.32.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_ENV
+          solana --version
+
+      - name: Install Anchor CLI
+        run: npm install -g @coral-xyz/anchor-cli@${ANCHOR_VERSION}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "yarn"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build (production)
+        run: anchor build
+
+      - name: Check IDL drift
+        run: |
+          if [ -d idl ]; then
+            for f in taste_token project_escrow governance rwa_token; do
+              [ -f "idl/${f}.json" ] || (echo "Missing idl/${f}.json" && exit 1)
+              diff -q "target/idl/${f}.json" "idl/${f}.json" || (echo "IDL drift: idl/${f}.json does not match target/idl/${f}.json" && exit 1)
+            done
+          fi
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+          solana --version
+
+      - name: Install Anchor CLI
+        run: npm install -g @coral-xyz/anchor-cli@${ANCHOR_VERSION}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "yarn"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build with test feature
+        run: anchor build -- --features test
+
+      - name: Generate test wallet
+        run: |
+          solana-keygen new -o scripts/test-wallet.json --no-bip39-passphrase --force
+
+      - name: Start Solana test validator
+        run: |
+          solana-test-validator \
+            --bpf-program AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK target/deploy/governance.so \
+            --bpf-program bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym target/deploy/project_escrow.so \
+            --bpf-program GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE target/deploy/rwa_token.so \
+            --bpf-program 2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo target/deploy/taste_token.so \
+            --reset &
+          for i in $(seq 1 30); do
+            if solana cluster-version --url http://127.0.0.1:8899 2>/dev/null; then break; fi
+            sleep 2
+          done
+          solana airdrop 10 $(solana-keygen pubkey scripts/test-wallet.json) --url http://127.0.0.1:8899 || true
+
+      - name: Run tests
+        env:
+          ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
+          ANCHOR_WALLET: ${{ github.workspace }}/scripts/test-wallet.json
+        run: |
+          node scripts/patch-governance-idl.cjs
+          mkdir -p dist/tests
+          npx esbuild tests/exhaustive.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist/tests/exhaustive.js
+          npx mocha -t 1000000 --exit dist/tests/exhaustive.js

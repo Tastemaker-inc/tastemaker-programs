@@ -1,0 +1,720 @@
+{
+  "address": "bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym",
+  "metadata": {
+    "name": "project_escrow",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "TasteMaker project funding escrow with milestone-based release"
+  },
+  "instructions": [
+    {
+      "name": "cancel_project",
+      "discriminator": [
+        104,
+        149,
+        3,
+        136,
+        160,
+        3,
+        13,
+        132
+      ],
+      "accounts": [
+        {
+          "name": "artist",
+          "signer": true,
+          "relations": [
+            "project"
+          ]
+        },
+        {
+          "name": "project",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "complete_project",
+      "discriminator": [
+        188,
+        43,
+        115,
+        43,
+        43,
+        176,
+        30,
+        150
+      ],
+      "accounts": [
+        {
+          "name": "governance_authority",
+          "signer": true
+        },
+        {
+          "name": "project",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_project",
+      "discriminator": [
+        148,
+        219,
+        181,
+        42,
+        221,
+        114,
+        145,
+        190
+      ],
+      "accounts": [
+        {
+          "name": "artist",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "artist_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  116,
+                  105,
+                  115,
+                  116,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "artist"
+              }
+            ]
+          }
+        },
+        {
+          "name": "project",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "artist"
+              },
+              {
+                "kind": "account",
+                "path": "artist_state.project_count",
+                "account": "ArtistState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "taste_mint"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "goal",
+          "type": "u64"
+        },
+        {
+          "name": "milestone_percentages",
+          "type": {
+            "array": [
+              "u16",
+              5
+            ]
+          }
+        },
+        {
+          "name": "deadline",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "fund_project",
+      "discriminator": [
+        129,
+        115,
+        149,
+        68,
+        159,
+        207,
+        33,
+        149
+      ],
+      "accounts": [
+        {
+          "name": "backer_wallet",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "project",
+          "writable": true
+        },
+        {
+          "name": "backer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  99,
+                  107,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              },
+              {
+                "kind": "account",
+                "path": "backer_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "backer_token_account",
+          "writable": true
+        },
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "platform_treasury",
+          "writable": true
+        },
+        {
+          "name": "burn_vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "burn_vault_token_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "burn_vault_authority"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "taste_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "taste_mint",
+          "writable": true,
+          "relations": [
+            "project"
+          ]
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "refund",
+      "discriminator": [
+        2,
+        96,
+        183,
+        251,
+        63,
+        208,
+        46,
+        46
+      ],
+      "accounts": [
+        {
+          "name": "backer_wallet",
+          "signer": true
+        },
+        {
+          "name": "project",
+          "writable": true,
+          "relations": [
+            "backer"
+          ]
+        },
+        {
+          "name": "backer",
+          "writable": true
+        },
+        {
+          "name": "backer_token_account",
+          "writable": true
+        },
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "escrow_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "taste_mint"
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "release_milestone",
+      "discriminator": [
+        56,
+        2,
+        199,
+        164,
+        184,
+        108,
+        167,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "governance_authority",
+          "signer": true
+        },
+        {
+          "name": "project",
+          "writable": true
+        },
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "escrow_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "artist_token_account",
+          "writable": true
+        },
+        {
+          "name": "taste_mint"
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "ArtistState",
+      "discriminator": [
+        148,
+        134,
+        41,
+        88,
+        117,
+        1,
+        155,
+        96
+      ]
+    },
+    {
+      "name": "Backer",
+      "discriminator": [
+        199,
+        128,
+        179,
+        190,
+        2,
+        66,
+        118,
+        252
+      ]
+    },
+    {
+      "name": "Project",
+      "discriminator": [
+        205,
+        168,
+        189,
+        202,
+        181,
+        247,
+        142,
+        19
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidMilestonePercentages",
+      "msg": "Milestone percentages must sum to 100"
+    },
+    {
+      "code": 6001,
+      "name": "ProjectNotActive",
+      "msg": "Project is not active"
+    },
+    {
+      "code": 6002,
+      "name": "ProjectDeadlinePassed",
+      "msg": "Project deadline has passed"
+    },
+    {
+      "code": 6003,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidMilestone",
+      "msg": "Invalid milestone index"
+    },
+    {
+      "code": 6005,
+      "name": "NotAllMilestonesReleased",
+      "msg": "Not all milestones released yet"
+    },
+    {
+      "code": 6006,
+      "name": "NotArtist",
+      "msg": "Only the artist can cancel"
+    },
+    {
+      "code": 6007,
+      "name": "NotBacker",
+      "msg": "Signer is not the backer"
+    },
+    {
+      "code": 6008,
+      "name": "ProjectNotCancelled",
+      "msg": "Project is not cancelled"
+    },
+    {
+      "code": 6009,
+      "name": "NothingToRefund",
+      "msg": "Nothing to refund"
+    },
+    {
+      "code": 6010,
+      "name": "GovernanceAuthorityMustSign",
+      "msg": "Governance authority must sign"
+    }
+  ],
+  "types": [
+    {
+      "name": "ArtistState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "artist",
+            "type": "pubkey"
+          },
+          {
+            "name": "project_count",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Backer",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "claimed_rwa",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Project",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "artist",
+            "type": "pubkey"
+          },
+          {
+            "name": "goal",
+            "type": "u64"
+          },
+          {
+            "name": "milestone_percentages",
+            "type": {
+              "array": [
+                "u16",
+                5
+              ]
+            }
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "ProjectStatus"
+              }
+            }
+          },
+          {
+            "name": "taste_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_raised",
+            "type": "u64"
+          },
+          {
+            "name": "backer_count",
+            "type": "u32"
+          },
+          {
+            "name": "current_milestone",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProjectStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    }
+  ]
+}

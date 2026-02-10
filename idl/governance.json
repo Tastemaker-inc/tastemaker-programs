@@ -1,0 +1,584 @@
+{
+  "address": "AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK",
+  "metadata": {
+    "name": "governance",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "TasteMaker milestone voting with quadratic weights"
+  },
+  "instructions": [
+    {
+      "name": "cancel_proposal",
+      "discriminator": [
+        106,
+        74,
+        128,
+        146,
+        19,
+        65,
+        39,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "signer": true
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cast_vote",
+      "discriminator": [
+        20,
+        212,
+        15,
+        189,
+        69,
+        180,
+        69,
+        151
+      ],
+      "accounts": [
+        {
+          "name": "voter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "backer"
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "side",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "create_proposal",
+      "discriminator": [
+        132,
+        116,
+        68,
+        174,
+        216,
+        160,
+        198,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "artist",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "proposal_attempt",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108,
+                  95,
+                  97,
+                  116,
+                  116,
+                  101,
+                  109,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "project_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "project"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "project_key",
+          "type": "pubkey"
+        },
+        {
+          "name": "milestone_index",
+          "type": "u8"
+        },
+        {
+          "name": "proof_uri",
+          "type": "string"
+        },
+        {
+          "name": "voting_period_secs",
+          "type": "i64"
+        },
+        {
+          "name": "attempt",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "finalize_proposal",
+      "discriminator": [
+        23,
+        68,
+        51,
+        167,
+        109,
+        173,
+        187,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "project",
+          "writable": true
+        },
+        {
+          "name": "release_authority",
+          "docs": [
+            "PDA that signs for governance CPI to project_escrow"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  108,
+                  101,
+                  97,
+                  115,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "escrow_authority"
+        },
+        {
+          "name": "artist_token_account",
+          "writable": true
+        },
+        {
+          "name": "taste_mint"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "project_escrow_program",
+          "address": "bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Backer",
+      "discriminator": [
+        199,
+        128,
+        179,
+        190,
+        2,
+        66,
+        118,
+        252
+      ]
+    },
+    {
+      "name": "Project",
+      "discriminator": [
+        205,
+        168,
+        189,
+        202,
+        181,
+        247,
+        142,
+        19
+      ]
+    },
+    {
+      "name": "Proposal",
+      "discriminator": [
+        26,
+        94,
+        189,
+        187,
+        116,
+        136,
+        53,
+        33
+      ]
+    },
+    {
+      "name": "ProposalAttempt",
+      "discriminator": [
+        135,
+        5,
+        76,
+        80,
+        2,
+        213,
+        62,
+        84
+      ]
+    },
+    {
+      "name": "Vote",
+      "discriminator": [
+        96,
+        91,
+        104,
+        57,
+        145,
+        35,
+        172,
+        155
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "VotingPeriodTooShort",
+      "msg": "Voting period must be at least 24 hours"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidMilestoneIndex",
+      "msg": "Invalid milestone index"
+    },
+    {
+      "code": 6002,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6003,
+      "name": "ProposalNotActive",
+      "msg": "Proposal is not active"
+    },
+    {
+      "code": 6004,
+      "name": "VotingEnded",
+      "msg": "Voting has ended"
+    },
+    {
+      "code": 6005,
+      "name": "NoContribution",
+      "msg": "No contribution in this project"
+    },
+    {
+      "code": 6006,
+      "name": "VotingNotEnded",
+      "msg": "Voting period has not ended"
+    },
+    {
+      "code": 6007,
+      "name": "QuorumNotMet",
+      "msg": "Quorum not met"
+    },
+    {
+      "code": 6008,
+      "name": "NotProposalCreator",
+      "msg": "Only proposal creator can cancel"
+    },
+    {
+      "code": 6009,
+      "name": "NotArtist",
+      "msg": "Only project artist can create proposals"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidProposalAttempt",
+      "msg": "Invalid proposal attempt"
+    }
+  ],
+  "types": [
+    {
+      "name": "Backer",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "claimed_rwa",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Project",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "artist",
+            "type": "pubkey"
+          },
+          {
+            "name": "goal",
+            "type": "u64"
+          },
+          {
+            "name": "milestone_percentages",
+            "type": {
+              "array": [
+                "u16",
+                5
+              ]
+            }
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "ProjectStatus"
+              }
+            }
+          },
+          {
+            "name": "taste_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_raised",
+            "type": "u64"
+          },
+          {
+            "name": "backer_count",
+            "type": "u32"
+          },
+          {
+            "name": "current_milestone",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProjectStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Proposal",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "milestone_index",
+            "type": "u8"
+          },
+          {
+            "name": "proof_uri",
+            "type": "string"
+          },
+          {
+            "name": "votes_for",
+            "type": "u64"
+          },
+          {
+            "name": "votes_against",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "ProposalStatus"
+              }
+            }
+          },
+          {
+            "name": "start_ts",
+            "type": "i64"
+          },
+          {
+            "name": "end_ts",
+            "type": "i64"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalAttempt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "attempt",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Passed"
+          },
+          {
+            "name": "Rejected"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Vote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "weight",
+            "type": "u64"
+          },
+          {
+            "name": "side",
+            "type": "bool"
+          }
+        ]
+      }
+    }
+  ]
+}

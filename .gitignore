@@ -1,0 +1,19 @@
+.anchor
+.DS_Store
+dist
+target
+**/*.rs.bk
+node_modules
+test-ledger
+.env
+*.json
+!Anchor.toml
+!package.json
+!package-lock.json
+!tsconfig.json
+!**/idl/*.json
+!**/idl/**/*.json
+# Keep deployments/*.json for recorded program IDs; ignore keypairs
+*keypair*.json
+id.json
+deploy-keypair.json

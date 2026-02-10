@@ -1,0 +1,23 @@
+[package]
+name = "rwa_token"
+version = "0.1.0"
+description = "TasteMaker per-project RWA mint and distribution (pull/claim)"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "rwa_token"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+test = []
+
+[dependencies]
+anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }
+anchor-spl = { version = "0.32.0", features = ["token", "associated_token"] }
+project_escrow = { path = "../project_escrow", features = ["cpi"] }

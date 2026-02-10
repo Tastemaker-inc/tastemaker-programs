@@ -1,0 +1,24 @@
+[package]
+name = "governance"
+version = "0.1.0"
+description = "TasteMaker milestone voting with quadratic weights"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "governance"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+# When enabled (via --features test in workspace), min voting period is 1s for tests. Never use on mainnet.
+test = []
+
+[dependencies]
+anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }
+anchor-spl = { version = "0.32.0", features = ["token"] }
+project_escrow = { path = "../project_escrow", features = ["cpi"] }
