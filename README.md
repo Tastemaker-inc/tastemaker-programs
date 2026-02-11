@@ -9,8 +9,8 @@ On-chain programs for [TasteMaker](https://tastemaker.music): platform token ($T
 | Program | Description |
 |---------|-------------|
 | **taste_token** | $TASTE mint (9 decimals). Init, mint to treasury/recipient, burn. |
-| **project_escrow** | Create project, fund with $TASTE, release by milestone via governance CPI. |
-| **governance** | Proposals + quadratic voting; finalize CPIs `release_milestone` to escrow. |
+| **project_escrow** | Create project, fund with $TASTE; milestone release only via governance CPI. `release_milestone` / `complete_project` require the governance release PDA as signer (no admin key). |
+| **governance** | Proposals + quadratic voting; finalize CPIs `release_milestone` via release PDA signer. |
 | **rwa_token** | Per-project RWA mint; backers claim by share; close to freeze. |
 
 ## Requirements

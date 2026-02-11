@@ -123,33 +123,9 @@ jobs:
       - name: Sync program keys for CI
         run: anchor keys sync
 
-      - name: Build with test feature
-        run: anchor build -- --features test
-
       - name: Generate test wallet
         run: |
           solana-keygen new -o scripts/test-wallet.json --no-bip39-passphrase --force
 
-      - name: Start Solana test validator
-        run: |
-          solana-test-validator \
-            --bpf-program $(solana address -k target/deploy/governance-keypair.json) target/deploy/governance.so \
-            --bpf-program $(solana address -k target/deploy/project_escrow-keypair.json) target/deploy/project_escrow.so \
-            --bpf-program $(solana address -k target/deploy/rwa_token-keypair.json) target/deploy/rwa_token.so \
-            --bpf-program $(solana address -k target/deploy/taste_token-keypair.json) target/deploy/taste_token.so \
-            --reset &
-          for i in $(seq 1 30); do
-            if solana cluster-version --url http://127.0.0.1:8899 2>/dev/null; then break; fi
-            sleep 2
-          done
-          solana airdrop 10 $(solana-keygen pubkey scripts/test-wallet.json) --url http://127.0.0.1:8899 || true
-
-      - name: Run tests
-        env:
-          ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
-          ANCHOR_WALLET: ${{ github.workspace }}/scripts/test-wallet.json
-        run: |
-          node scripts/patch-governance-idl.cjs
-          mkdir -p dist/tests
-          npx esbuild tests/exhaustive.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist/tests/exhaustive.js
-          npx mocha -t 1000000 --exit dist/tests/exhaustive.js
+      - name: Run full test suite
+        run: npm run test:full

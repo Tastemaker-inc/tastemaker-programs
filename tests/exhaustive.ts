@@ -75,6 +75,24 @@ function getArtistStatePda(artist: PublicKey, programId: PublicKey): PublicKey {
   return pda;
 }
 
+function getEscrowConfigPda(projectEscrowProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("config")],
+    projectEscrowProgramId
+  )[0];
+}
+
+/** BPF Loader Upgradeable program ID (program data PDA derivation). */
+const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
+
+function getProgramDataAddress(programId: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [programId.toBuffer()],
+    BPF_LOADER_UPGRADEABLE_PROGRAM_ID
+  );
+  return pda;
+}
+
 function getPlatformTreasuryAta(tasteMint: PublicKey, tasteTokenProgramId: PublicKey): PublicKey {
   const [treasuryAuth] = PublicKey.findProgramAddressSync(
     [Buffer.from("treasury")],
@@ -202,6 +220,77 @@ describe("tastemaker-programs exhaustive", function () {
     await airdrop(cancelProposalBacker.publicKey);
     cancelBacker = Keypair.generate();
     await airdrop(cancelBacker.publicKey);
+  });
+
+  describe("project_escrow config", () => {
+    // Run negative test first while config account does not exist (so instruction runs and fails on authority check).
+    it("initializeConfig fails when signer is not the program upgrade authority", async () => {
+      const wrongAuthority = Keypair.generate();
+      await airdrop(wrongAuthority.publicKey);
+      const configPda = getEscrowConfigPda(projectEscrowProgramId);
+      const [releaseAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("release_authority")],
+        governanceProgramId
+      );
+      await expect(
+        projectEscrow.methods
+          .initializeConfig(releaseAuthority)
+          .accounts({
+            authority: wrongAuthority.publicKey,
+            config: configPda,
+            programAccount: projectEscrowProgramId,
+            programDataAccount: getProgramDataAddress(projectEscrowProgramId),
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([wrongAuthority])
+          .rpc()
+      ).to.be.rejectedWith(/NotUpgradeAuthority|6011|6012|0x177b|0x177c/i);
+    });
+
+    it("initializes config with correct upgrade authority", async () => {
+      const configPda = getEscrowConfigPda(projectEscrowProgramId);
+      const [releaseAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("release_authority")],
+        governanceProgramId
+      );
+      try {
+        await projectEscrow.methods
+          .initializeConfig(releaseAuthority)
+          .accounts({
+            authority: provider.wallet.publicKey,
+            config: configPda,
+            programAccount: projectEscrowProgramId,
+            programDataAccount: getProgramDataAddress(projectEscrowProgramId),
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+      } catch (e: unknown) {
+        const msg = (e as Error).message ?? String(e);
+        if (!/already in use|AccountAlreadyInitialized|0x0|custom program error: 0x0/i.test(msg)) throw e;
+      }
+    });
+
+    it("updateConfig fails when signer is not the program upgrade authority", async () => {
+      const wrongAuthority = Keypair.generate();
+      await airdrop(wrongAuthority.publicKey);
+      const configPda = getEscrowConfigPda(projectEscrowProgramId);
+      const [releaseAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("release_authority")],
+        governanceProgramId
+      );
+      await expect(
+        projectEscrow.methods
+          .updateConfig(releaseAuthority)
+          .accounts({
+            authority: wrongAuthority.publicKey,
+            config: configPda,
+            programAccount: projectEscrowProgramId,
+            programDataAccount: getProgramDataAddress(projectEscrowProgramId),
+          })
+          .signers([wrongAuthority])
+          .rpc()
+      ).to.be.rejectedWith(/NotUpgradeAuthority|6011|0x177b/i);
+    });
   });
 
   describe("taste_token", () => {
@@ -570,6 +659,7 @@ describe("tastemaker-programs exhaustive", function () {
             proposal: proposalPda,
             project: projectPda,
             releaseAuthority,
+            escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
             escrow: escrowPda,
             escrowAuthority,
             artistTokenAccount: artistAta,
@@ -1395,6 +1485,7 @@ describe("tastemaker-programs exhaustive", function () {
             proposal: proposalPda,
             project: earlyProjectPda,
             releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
+            escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
             escrow: escrowPda,
             escrowAuthority,
             artistTokenAccount: earlyArtistAta,
@@ -1673,6 +1764,7 @@ describe("tastemaker-programs exhaustive", function () {
           proposal: proposalPda,
           project: rejectProjectPda,
           releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
+          escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
           escrow: escrowPda,
           escrowAuthority,
           artistTokenAccount: rejectArtistAta,
@@ -1778,6 +1870,7 @@ describe("tastemaker-programs exhaustive", function () {
             proposal: proposalPda,
             project: quorumProjectPda,
             releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
+            escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
             escrow: escrowPda,
             escrowAuthority,
             artistTokenAccount: quorumArtistAta,

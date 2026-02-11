@@ -21,4 +21,4 @@ Backer-voted milestone release (quadratic voting, quorum, CPI to escrow).
 
 ## CPI
 
-`FinalizeProposal` builds `ReleaseMilestone` and calls `project_escrow::cpi::release_milestone(cpi_ctx)` with `CpiContext::new_with_signer(..., &[seeds])` where seeds = `[b"release_authority", bump]`.
+`FinalizeProposal` builds `ReleaseMilestone` and calls `project_escrow::cpi::release_milestone(cpi_ctx)` with `CpiContext::new_with_signer(..., &[seeds])` where seeds = `[b"release_authority", bump]`. Accounts passed to the CPI include `config` (project_escrow Config PDA `[b"config"]`); project_escrow validates that the signer equals `config.governance_release_authority`.

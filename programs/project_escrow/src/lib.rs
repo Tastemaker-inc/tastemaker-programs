@@ -5,6 +5,15 @@ use anchor_spl::token_interface::{Burn, Mint, TokenAccount, TokenInterface, Tran
 
 declare_id!("bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym");
 
+/// Upgradeable loader: Program variant.
+const UPGRADEABLE_LOADER_PROGRAM_STATE: u8 = 2;
+/// Upgradeable loader: ProgramData variant.
+const UPGRADEABLE_LOADER_PROGRAM_DATA_STATE: u8 = 3;
+/// Program account min length: 4-byte discriminant + 32-byte programdata address (spec).
+const MIN_PROGRAM_ACCOUNT_LEN: usize = 36;
+/// ProgramData metadata min length: 4-byte + 8 + 1 + 32 (spec).
+const MIN_PROGRAMDATA_METADATA_LEN: usize = 45;
+
 #[error_code]
 pub enum EscrowError {
     #[msg("Milestone percentages must sum to 100")]
@@ -27,15 +36,104 @@ pub enum EscrowError {
     ProjectNotCancelled,
     #[msg("Nothing to refund")]
     NothingToRefund,
-    #[msg("Governance authority must sign")]
-    GovernanceAuthorityMustSign,
+    #[msg("Governance authority does not match config")]
+    GovernanceAuthorityMismatch,
+    #[msg("Only program upgrade authority can initialize config")]
+    NotUpgradeAuthority,
 }
 
 pub const MAX_MILESTONES: usize = 5;
 
+/// Validates that the signer is the program's upgrade authority by reading upgradeable loader
+/// state (4-byte bincode layout).
+fn require_upgrade_authority(
+    program_id: &Pubkey,
+    program_account_key: &Pubkey,
+    program_account_data: &[u8],
+    program_data_account_key: &Pubkey,
+    program_data_account_data: &[u8],
+    authority_key: &Pubkey,
+) -> Result<()> {
+    require!(
+        program_account_key == program_id,
+        EscrowError::NotUpgradeAuthority
+    );
+
+    // Program account: 4-byte discriminant + 32-byte programdata address.
+    require!(
+        program_account_data.len() >= MIN_PROGRAM_ACCOUNT_LEN
+            && u32::from_le_bytes(program_account_data[0..4].try_into().unwrap()) == UPGRADEABLE_LOADER_PROGRAM_STATE as u32,
+        EscrowError::NotUpgradeAuthority
+    );
+    let programdata_address = Pubkey::new_from_array(program_account_data[4..36].try_into().unwrap());
+    require!(
+        program_data_account_key == &programdata_address,
+        EscrowError::NotUpgradeAuthority
+    );
+
+    // ProgramData account: 4-byte discriminant, slot (8), Option (1), Pubkey (32).
+    require!(
+        program_data_account_data.len() >= MIN_PROGRAMDATA_METADATA_LEN
+            && u32::from_le_bytes(program_data_account_data[0..4].try_into().unwrap()) == UPGRADEABLE_LOADER_PROGRAM_DATA_STATE as u32,
+        EscrowError::NotUpgradeAuthority
+    );
+    let option_byte = program_data_account_data[12];
+    require!(option_byte == 1, EscrowError::NotUpgradeAuthority); // Option::Some
+    let upgrade_authority = Pubkey::new_from_array(program_data_account_data[13..45].try_into().unwrap());
+    require!(
+        upgrade_authority == *authority_key,
+        EscrowError::NotUpgradeAuthority
+    );
+    Ok(())
+}
+
 #[program]
 pub mod project_escrow {
     use super::*;
+
+    /// One-time init: store the governance release PDA. Only the program upgrade authority can call this.
+    pub fn initialize_config(
+        ctx: Context<InitializeConfig>,
+        governance_release_authority: Pubkey,
+    ) -> Result<()> {
+        let program_account = ctx.accounts.program_account.try_borrow_data()?;
+        let program_data_account = ctx.accounts.program_data_account.try_borrow_data()?;
+        require_upgrade_authority(
+            &ctx.program_id,
+            &ctx.accounts.program_account.key(),
+            &program_account,
+            &ctx.accounts.program_data_account.key(),
+            &program_data_account,
+            &ctx.accounts.authority.key(),
+        )?;
+
+        let config = &mut ctx.accounts.config;
+        config.governance_release_authority = governance_release_authority;
+        msg!("Config initialized: governance_release_authority = {}", config.governance_release_authority);
+        Ok(())
+    }
+
+    /// Update the stored governance release authority (key rotation). Only the program upgrade authority can call this.
+    pub fn update_config(
+        ctx: Context<UpdateConfig>,
+        governance_release_authority: Pubkey,
+    ) -> Result<()> {
+        let program_account = ctx.accounts.program_account.try_borrow_data()?;
+        let program_data_account = ctx.accounts.program_data_account.try_borrow_data()?;
+        require_upgrade_authority(
+            &ctx.program_id,
+            &ctx.accounts.program_account.key(),
+            &program_account,
+            &ctx.accounts.program_data_account.key(),
+            &program_data_account,
+            &ctx.accounts.authority.key(),
+        )?;
+
+        let config = &mut ctx.accounts.config;
+        config.governance_release_authority = governance_release_authority;
+        msg!("Config updated: governance_release_authority = {}", config.governance_release_authority);
+        Ok(())
+    }
 
     pub fn create_project(
         ctx: Context<CreateProject>,
@@ -340,6 +438,59 @@ pub struct Backer {
     pub claimed_rwa: bool,
 }
 
+/// One-time config: stores the governance release PDA. ReleaseMilestone/CompleteProject validate against this.
+#[account]
+pub struct Config {
+    pub governance_release_authority: Pubkey,
+}
+
+#[derive(Accounts)]
+pub struct InitializeConfig<'info> {
+    /// Must be the program upgrade authority (validated in instruction).
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + 32,
+        seeds = [b"config"],
+        bump,
+    )]
+    pub config: Account<'info, Config>,
+
+    /// Program account (executable) for this program. Used to read programdata address.
+    /// CHECK: validated in instruction (must equal ctx.program_id)
+    pub program_account: UncheckedAccount<'info>,
+
+    /// ProgramData account for this program. Used to read upgrade_authority_address.
+    /// CHECK: validated in instruction (must match program_account's programdata_address)
+    pub program_data_account: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateConfig<'info> {
+    /// Must be the program upgrade authority (validated in instruction).
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"config"],
+        bump,
+    )]
+    pub config: Account<'info, Config>,
+
+    /// Program account (executable) for this program.
+    /// CHECK: validated in instruction
+    pub program_account: UncheckedAccount<'info>,
+
+    /// ProgramData account for this program.
+    /// CHECK: validated in instruction
+    pub program_data_account: UncheckedAccount<'info>,
+}
+
 #[derive(Accounts)]
 pub struct CreateProject<'info> {
     #[account(mut)]
@@ -432,6 +583,13 @@ pub struct FundProject<'info> {
 pub struct ReleaseMilestone<'info> {
     pub governance_authority: Signer<'info>,
 
+    #[account(
+        seeds = [b"config"],
+        bump,
+        constraint = config.governance_release_authority == governance_authority.key() @ EscrowError::GovernanceAuthorityMismatch
+    )]
+    pub config: Account<'info, Config>,
+
     #[account(mut)]
     pub project: Account<'info, Project>,
 
@@ -452,6 +610,13 @@ pub struct ReleaseMilestone<'info> {
 #[derive(Accounts)]
 pub struct CompleteProject<'info> {
     pub governance_authority: Signer<'info>,
+
+    #[account(
+        seeds = [b"config"],
+        bump,
+        constraint = config.governance_release_authority == governance_authority.key() @ EscrowError::GovernanceAuthorityMismatch
+    )]
+    pub config: Account<'info, Config>,
 
     #[account(mut)]
     pub project: Account<'info, Project>,

@@ -151,6 +151,7 @@ pub mod governance {
                 ctx.accounts.project_escrow_program.to_account_info(),
                 project_escrow::cpi::accounts::ReleaseMilestone {
                     governance_authority: ctx.accounts.release_authority.to_account_info(),
+                    config: ctx.accounts.escrow_config.to_account_info(),
                     project: ctx.accounts.project.to_account_info(),
                     escrow: ctx.accounts.escrow.to_account_info(),
                     escrow_authority: ctx.accounts.escrow_authority.to_account_info(),
@@ -312,6 +313,12 @@ pub struct FinalizeProposal<'info> {
     /// CHECK: validated by seeds
     #[account(seeds = [b"release_authority"], bump)]
     pub release_authority: UncheckedAccount<'info>,
+
+    /// Project escrow config PDA (seeds = [b"config"]). Must match project_escrow program's config PDA.
+    #[account(
+        constraint = escrow_config.key() == Pubkey::find_program_address(&[b"config"], &project_escrow_program.key()).0
+    )]
+    pub escrow_config: Account<'info, project_escrow::Config>,
 
     #[account(mut)]
     pub escrow: InterfaceAccount<'info, TokenAccount>,

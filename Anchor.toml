@@ -4,6 +4,9 @@
 resolution = true
 skip-lint = false
 
+[test]
+upgradeable = true
+
 [programs.devnet]
 governance = "AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK"
 project_escrow = "bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym"

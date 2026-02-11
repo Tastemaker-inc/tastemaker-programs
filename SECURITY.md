@@ -9,7 +9,7 @@ Please report security vulnerabilities to **security@tastemaker.music**. Do not 
 We are interested in vulnerabilities in the **on-chain Anchor programs** in this repository:
 
 - `taste_token`
-- `project_escrow`
+- `project_escrow` (including Config PDA, `initialize_config` / `update_config` restricted to upgrade authority, and `release_milestone` / `complete_project` restricted to governance release PDA)
 - `governance`
 - `rwa_token`
 

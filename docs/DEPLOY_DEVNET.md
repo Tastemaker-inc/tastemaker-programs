@@ -17,9 +17,9 @@
    ```
 
 2. **Set program IDs**  
-   Put each keypair’s pubkey into:
+   Put each keypair's pubkey into:
    - `Anchor.toml` under `[programs.devnet]`
-   - The corresponding `declare_id!(...)` in each program’s `src/lib.rs`
+   - The corresponding `declare_id!(...)` in each program's `src/lib.rs`
 
 3. **Build and deploy**
    ```bash
@@ -28,18 +28,21 @@
    ```
    Or: `anchor deploy --provider.cluster devnet`
 
-4. **Verify program IDs**  
+4. **Initialize project_escrow config (once per deployment)**  
+   The upgrade authority of the project_escrow program must call `initialize_config(governance_release_authority)` with the governance program's release PDA (e.g. `PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0]`). Pass the program account (project_escrow program id), the program's ProgramData account (PDA from BPF Loader Upgradeable), and the upgrade authority as signer. This records the only key that can call `release_milestone` / `complete_project`. For key rotation, call `update_config(new_authority)` with the same authority check.
+
+5. **Verify program IDs**  
    ```bash
    anchor keys list
    ```
    Confirms each keypair under `target/deploy/` matches the `declare_id!` in the corresponding program.
 
-5. **Record addresses**  
+6. **Record addresses**  
    Optionally store program IDs in `deployments/devnet.json` for frontends/scripts.
 
 ## Verified program IDs
 
-After deployment, verify that each program’s keypair matches the ID in the binary:
+After deployment, verify that each program's keypair matches the ID in the binary:
 
 ```bash
 anchor keys list
@@ -54,4 +57,4 @@ governance:      AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK
 rwa_token:      GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE
 ```
 
-Ensure these match `[programs.devnet]` in `Anchor.toml` and each program’s `declare_id!(...)` in `src/lib.rs`. Use these IDs in Solana Explorer or for verification.
+Ensure these match `[programs.devnet]` in `Anchor.toml` and each program's `declare_id!(...)` in `src/lib.rs`. Use these IDs in Solana Explorer or for verification.
