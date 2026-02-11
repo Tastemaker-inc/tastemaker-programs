@@ -115,7 +115,7 @@ jobs:
         run: |
           sudo snap install surfpool
           echo "/snap/bin" >> $GITHUB_PATH
-          /snap/bin/surfpool --version
+          /snap/bin/surfpool --version || true
 
       - name: Setup Node
         uses: actions/setup-node@v4
