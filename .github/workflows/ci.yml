@@ -133,10 +133,10 @@ jobs:
       - name: Start Solana test validator
         run: |
           solana-test-validator \
-            --bpf-program $(grep governance Anchor.toml | head -1 | tr -d ' "' | cut -d= -f2) target/deploy/governance.so \
-            --bpf-program $(grep project_escrow Anchor.toml | head -1 | tr -d ' "' | cut -d= -f2) target/deploy/project_escrow.so \
-            --bpf-program $(grep rwa_token Anchor.toml | head -1 | tr -d ' "' | cut -d= -f2) target/deploy/rwa_token.so \
-            --bpf-program $(grep taste_token Anchor.toml | head -1 | tr -d ' "' | cut -d= -f2) target/deploy/taste_token.so \
+            --bpf-program $(solana address -k target/deploy/governance-keypair.json) target/deploy/governance.so \
+            --bpf-program $(solana address -k target/deploy/project_escrow-keypair.json) target/deploy/project_escrow.so \
+            --bpf-program $(solana address -k target/deploy/rwa_token-keypair.json) target/deploy/rwa_token.so \
+            --bpf-program $(solana address -k target/deploy/taste_token-keypair.json) target/deploy/taste_token.so \
             --reset &
           for i in $(seq 1 30); do
             if solana cluster-version --url http://127.0.0.1:8899 2>/dev/null; then break; fi
