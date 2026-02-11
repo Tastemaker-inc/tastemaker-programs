@@ -3,7 +3,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Burn, Mint, TokenAccount, TokenInterface, TransferChecked};
 
-declare_id!("bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym");
+declare_id!("2YH9c5BMDLNqQ7V9t3UF2x32xN8d8BukhhrJCduPQJip");
 
 /// Upgradeable loader: Program variant.
 const UPGRADEABLE_LOADER_PROGRAM_STATE: u8 = 2;
@@ -62,10 +62,12 @@ fn require_upgrade_authority(
     // Program account: 4-byte discriminant + 32-byte programdata address.
     require!(
         program_account_data.len() >= MIN_PROGRAM_ACCOUNT_LEN
-            && u32::from_le_bytes(program_account_data[0..4].try_into().unwrap()) == UPGRADEABLE_LOADER_PROGRAM_STATE as u32,
+            && u32::from_le_bytes(program_account_data[0..4].try_into().unwrap())
+                == UPGRADEABLE_LOADER_PROGRAM_STATE as u32,
         EscrowError::NotUpgradeAuthority
     );
-    let programdata_address = Pubkey::new_from_array(program_account_data[4..36].try_into().unwrap());
+    let programdata_address =
+        Pubkey::new_from_array(program_account_data[4..36].try_into().unwrap());
     require!(
         program_data_account_key == &programdata_address,
         EscrowError::NotUpgradeAuthority
@@ -74,12 +76,14 @@ fn require_upgrade_authority(
     // ProgramData account: 4-byte discriminant, slot (8), Option (1), Pubkey (32).
     require!(
         program_data_account_data.len() >= MIN_PROGRAMDATA_METADATA_LEN
-            && u32::from_le_bytes(program_data_account_data[0..4].try_into().unwrap()) == UPGRADEABLE_LOADER_PROGRAM_DATA_STATE as u32,
+            && u32::from_le_bytes(program_data_account_data[0..4].try_into().unwrap())
+                == UPGRADEABLE_LOADER_PROGRAM_DATA_STATE as u32,
         EscrowError::NotUpgradeAuthority
     );
     let option_byte = program_data_account_data[12];
     require!(option_byte == 1, EscrowError::NotUpgradeAuthority); // Option::Some
-    let upgrade_authority = Pubkey::new_from_array(program_data_account_data[13..45].try_into().unwrap());
+    let upgrade_authority =
+        Pubkey::new_from_array(program_data_account_data[13..45].try_into().unwrap());
     require!(
         upgrade_authority == *authority_key,
         EscrowError::NotUpgradeAuthority
@@ -99,7 +103,7 @@ pub mod project_escrow {
         let program_account = ctx.accounts.program_account.try_borrow_data()?;
         let program_data_account = ctx.accounts.program_data_account.try_borrow_data()?;
         require_upgrade_authority(
-            &ctx.program_id,
+            ctx.program_id,
             &ctx.accounts.program_account.key(),
             &program_account,
             &ctx.accounts.program_data_account.key(),
@@ -109,7 +113,10 @@ pub mod project_escrow {
 
         let config = &mut ctx.accounts.config;
         config.governance_release_authority = governance_release_authority;
-        msg!("Config initialized: governance_release_authority = {}", config.governance_release_authority);
+        msg!(
+            "Config initialized: governance_release_authority = {}",
+            config.governance_release_authority
+        );
         Ok(())
     }
 
@@ -121,7 +128,7 @@ pub mod project_escrow {
         let program_account = ctx.accounts.program_account.try_borrow_data()?;
         let program_data_account = ctx.accounts.program_data_account.try_borrow_data()?;
         require_upgrade_authority(
-            &ctx.program_id,
+            ctx.program_id,
             &ctx.accounts.program_account.key(),
             &program_account,
             &ctx.accounts.program_data_account.key(),
@@ -131,7 +138,10 @@ pub mod project_escrow {
 
         let config = &mut ctx.accounts.config;
         config.governance_release_authority = governance_release_authority;
-        msg!("Config updated: governance_release_authority = {}", config.governance_release_authority);
+        msg!(
+            "Config updated: governance_release_authority = {}",
+            config.governance_release_authority
+        );
         Ok(())
     }
 

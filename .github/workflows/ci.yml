@@ -111,6 +111,12 @@ jobs:
           chmod +x /usr/local/bin/anchor
           anchor --version
 
+      - name: Install surfpool
+        run: |
+          sudo snap install surfpool
+          echo "/snap/bin" >> $GITHUB_PATH
+          /snap/bin/surfpool --version
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:

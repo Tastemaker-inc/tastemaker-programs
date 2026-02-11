@@ -5,7 +5,7 @@
   "scripts": {
     "lint:fix": "prettier */*.js \"*.js\" -w",
     "test": "anchor test",
-    "test:full": "anchor test --provider.cluster localnet --validator legacy --provider.wallet ./scripts/test-wallet.json -- --features test"
+    "test:full": "anchor test --provider.cluster localnet --provider.wallet ./scripts/test-wallet.json -- --features test"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.0",
