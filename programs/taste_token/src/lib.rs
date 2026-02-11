@@ -31,7 +31,10 @@ pub mod taste_token {
     pub fn mint_to_treasury(ctx: Context<MintToTreasury>, amount: u64) -> Result<()> {
         let supply = ctx.accounts.mint.supply;
         require!(
-            supply.checked_add(amount).ok_or(TasteError::ExceedsMaxSupply)? <= MAX_SUPPLY,
+            supply
+                .checked_add(amount)
+                .ok_or(TasteError::ExceedsMaxSupply)?
+                <= MAX_SUPPLY,
             TasteError::ExceedsMaxSupply
         );
         let cpi_accounts = MintTo {
@@ -48,7 +51,10 @@ pub mod taste_token {
     pub fn mint_to(ctx: Context<MintToRecipient>, amount: u64) -> Result<()> {
         let supply = ctx.accounts.mint.supply;
         require!(
-            supply.checked_add(amount).ok_or(TasteError::ExceedsMaxSupply)? <= MAX_SUPPLY,
+            supply
+                .checked_add(amount)
+                .ok_or(TasteError::ExceedsMaxSupply)?
+                <= MAX_SUPPLY,
             TasteError::ExceedsMaxSupply
         );
         let cpi_accounts = MintTo {

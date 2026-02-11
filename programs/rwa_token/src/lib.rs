@@ -10,10 +10,7 @@ declare_id!("GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE");
 pub mod rwa_token {
     use super::*;
 
-    pub fn initialize_rwa_mint(
-        ctx: Context<InitializeRwaMint>,
-        total_supply: u64,
-    ) -> Result<()> {
+    pub fn initialize_rwa_mint(ctx: Context<InitializeRwaMint>, total_supply: u64) -> Result<()> {
         require!(
             ctx.accounts.project.status == ProjectStatus::Completed,
             RwaError::ProjectNotCompleted
@@ -41,8 +38,14 @@ pub mod rwa_token {
         );
 
         let backer_account = &ctx.accounts.backer_account;
-        require!(backer_account.wallet == ctx.accounts.backer.key(), RwaError::NotBacker);
-        require!(backer_account.project == project_key, RwaError::WrongProject);
+        require!(
+            backer_account.wallet == ctx.accounts.backer.key(),
+            RwaError::NotBacker
+        );
+        require!(
+            backer_account.project == project_key,
+            RwaError::WrongProject
+        );
         require!(backer_account.amount > 0, RwaError::NoContribution);
 
         let total_raised = ctx.accounts.project.total_raised;
@@ -58,7 +61,9 @@ pub mod rwa_token {
 
         require!(share > 0, RwaError::ZeroShare);
 
-        let new_minted = current_minted.checked_add(share).ok_or(RwaError::Overflow)?;
+        let new_minted = current_minted
+            .checked_add(share)
+            .ok_or(RwaError::Overflow)?;
         require!(new_minted <= total_supply, RwaError::ExceedsSupply);
 
         ctx.accounts.rwa_state.minted = new_minted;

@@ -57,16 +57,30 @@ pub mod project_escrow {
         if artist_state.project_count == 0 {
             artist_state.artist = ctx.accounts.artist.key();
         }
-        artist_state.project_count = artist_state.project_count.checked_add(1).ok_or(EscrowError::Overflow)?;
-        msg!("Project created: {} (artist project #{}), {}", project.key(), artist_state.project_count - 1, project.key());
+        artist_state.project_count = artist_state
+            .project_count
+            .checked_add(1)
+            .ok_or(EscrowError::Overflow)?;
+        msg!(
+            "Project created: {} (artist project #{}), {}",
+            project.key(),
+            artist_state.project_count - 1,
+            project.key()
+        );
         Ok(())
     }
 
     pub fn fund_project(ctx: Context<FundProject>, amount: u64) -> Result<()> {
         let project = &ctx.accounts.project;
-        require!(project.status == ProjectStatus::Active, EscrowError::ProjectNotActive);
+        require!(
+            project.status == ProjectStatus::Active,
+            EscrowError::ProjectNotActive
+        );
         let clock = Clock::get()?;
-        require!(clock.unix_timestamp < project.deadline, EscrowError::ProjectDeadlinePassed);
+        require!(
+            clock.unix_timestamp < project.deadline,
+            EscrowError::ProjectDeadlinePassed
+        );
 
         // 4% platform fee: 2% treasury, 2% burn, 96% to escrow
         let fee_treasury = (amount as u128)
@@ -87,16 +101,24 @@ pub mod project_escrow {
 
         let backer = &mut ctx.accounts.backer;
         let existing = backer.amount;
-        backer.amount = existing.checked_add(to_escrow).ok_or(EscrowError::Overflow)?;
+        backer.amount = existing
+            .checked_add(to_escrow)
+            .ok_or(EscrowError::Overflow)?;
         if existing == 0 {
             backer.wallet = ctx.accounts.backer_wallet.key();
             backer.project = project.key();
         }
 
         let project_acc = &mut ctx.accounts.project;
-        project_acc.total_raised = project_acc.total_raised.checked_add(to_escrow).ok_or(EscrowError::Overflow)?;
+        project_acc.total_raised = project_acc
+            .total_raised
+            .checked_add(to_escrow)
+            .ok_or(EscrowError::Overflow)?;
         if existing == 0 {
-            project_acc.backer_count = project_acc.backer_count.checked_add(1).ok_or(EscrowError::Overflow)?;
+            project_acc.backer_count = project_acc
+                .backer_count
+                .checked_add(1)
+                .ok_or(EscrowError::Overflow)?;
         }
 
         let decimals = ctx.accounts.taste_mint.decimals;
@@ -161,13 +183,21 @@ pub mod project_escrow {
             )?;
         }
 
-        msg!("Funded project with {} $TASTE ({} to escrow, {} fee)", amount, to_escrow, fee_treasury + fee_burn);
+        msg!(
+            "Funded project with {} $TASTE ({} to escrow, {} fee)",
+            amount,
+            to_escrow,
+            fee_treasury + fee_burn
+        );
         Ok(())
     }
 
     pub fn release_milestone(ctx: Context<ReleaseMilestone>) -> Result<()> {
         let project = &mut ctx.accounts.project;
-        require!(project.status == ProjectStatus::Active, EscrowError::ProjectNotActive);
+        require!(
+            project.status == ProjectStatus::Active,
+            EscrowError::ProjectNotActive
+        );
         let idx = project.current_milestone as usize;
         require!(idx < MAX_MILESTONES, EscrowError::InvalidMilestone);
         let pct = project.milestone_percentages[idx];
@@ -198,7 +228,10 @@ pub mod project_escrow {
             ctx.accounts.taste_mint.decimals,
         )?;
 
-        project.current_milestone = project.current_milestone.checked_add(1).ok_or(EscrowError::Overflow)?;
+        project.current_milestone = project
+            .current_milestone
+            .checked_add(1)
+            .ok_or(EscrowError::Overflow)?;
         if project.current_milestone as usize >= MAX_MILESTONES {
             project.status = ProjectStatus::Completed;
         }
@@ -208,7 +241,10 @@ pub mod project_escrow {
 
     pub fn complete_project(ctx: Context<CompleteProject>) -> Result<()> {
         let project = &mut ctx.accounts.project;
-        require!(project.status == ProjectStatus::Active, EscrowError::ProjectNotActive);
+        require!(
+            project.status == ProjectStatus::Active,
+            EscrowError::ProjectNotActive
+        );
         require!(
             project.current_milestone as usize >= MAX_MILESTONES,
             EscrowError::NotAllMilestonesReleased
@@ -220,7 +256,10 @@ pub mod project_escrow {
 
     pub fn cancel_project(ctx: Context<CancelProject>) -> Result<()> {
         let project = &mut ctx.accounts.project;
-        require!(project.status == ProjectStatus::Active, EscrowError::ProjectNotActive);
+        require!(
+            project.status == ProjectStatus::Active,
+            EscrowError::ProjectNotActive
+        );
         require!(
             ctx.accounts.artist.key() == project.artist,
             EscrowError::NotArtist
@@ -232,7 +271,10 @@ pub mod project_escrow {
 
     pub fn refund(ctx: Context<Refund>) -> Result<()> {
         let project = &ctx.accounts.project;
-        require!(project.status == ProjectStatus::Cancelled, EscrowError::ProjectNotCancelled);
+        require!(
+            project.status == ProjectStatus::Cancelled,
+            EscrowError::ProjectNotCancelled
+        );
         let amount = ctx.accounts.backer.amount;
         require!(amount > 0, EscrowError::NothingToRefund);
 

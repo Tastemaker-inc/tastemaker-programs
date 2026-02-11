@@ -20,7 +20,7 @@ pub(crate) fn sqrt_u64(x: u64) -> u64 {
     if x == 0 {
         return 0;
     }
-    let mut z = (x + 1) / 2;
+    let mut z = x.div_ceil(2);
     let mut y = x;
     while z < y {
         y = z;
@@ -48,12 +48,20 @@ pub mod governance {
         require!(milestone_index < 5, GovError::InvalidMilestoneIndex);
 
         let attempt_acc = &mut ctx.accounts.proposal_attempt;
-        require!(attempt_acc.attempt == attempt, GovError::InvalidProposalAttempt);
-        attempt_acc.attempt = attempt_acc.attempt.checked_add(1).ok_or(GovError::Overflow)?;
+        require!(
+            attempt_acc.attempt == attempt,
+            GovError::InvalidProposalAttempt
+        );
+        attempt_acc.attempt = attempt_acc
+            .attempt
+            .checked_add(1)
+            .ok_or(GovError::Overflow)?;
 
         let clock = Clock::get()?;
         let start_ts = clock.unix_timestamp;
-        let end_ts = start_ts.checked_add(voting_period_secs).ok_or(GovError::Overflow)?;
+        let end_ts = start_ts
+            .checked_add(voting_period_secs)
+            .ok_or(GovError::Overflow)?;
 
         let p = &mut ctx.accounts.proposal;
         p.project = project_key;
@@ -70,9 +78,15 @@ pub mod governance {
 
     pub fn cast_vote(ctx: Context<CastVote>, side: bool) -> Result<()> {
         let proposal = &ctx.accounts.proposal;
-        require!(proposal.status == ProposalStatus::Active, GovError::ProposalNotActive);
+        require!(
+            proposal.status == ProposalStatus::Active,
+            GovError::ProposalNotActive
+        );
         let clock = Clock::get()?;
-        require!(clock.unix_timestamp < proposal.end_ts, GovError::VotingEnded);
+        require!(
+            clock.unix_timestamp < proposal.end_ts,
+            GovError::VotingEnded
+        );
 
         let backer = &ctx.accounts.backer;
         require!(backer.amount > 0, GovError::NoContribution);
@@ -86,20 +100,35 @@ pub mod governance {
 
         let proposal_acc = &mut ctx.accounts.proposal;
         if side {
-            proposal_acc.votes_for = proposal_acc.votes_for.checked_add(weight).ok_or(GovError::Overflow)?;
+            proposal_acc.votes_for = proposal_acc
+                .votes_for
+                .checked_add(weight)
+                .ok_or(GovError::Overflow)?;
         } else {
-            proposal_acc.votes_against = proposal_acc.votes_against.checked_add(weight).ok_or(GovError::Overflow)?;
+            proposal_acc.votes_against = proposal_acc
+                .votes_against
+                .checked_add(weight)
+                .ok_or(GovError::Overflow)?;
         }
         Ok(())
     }
 
     pub fn finalize_proposal(ctx: Context<FinalizeProposal>) -> Result<()> {
         let proposal = &mut ctx.accounts.proposal;
-        require!(proposal.status == ProposalStatus::Active, GovError::ProposalNotActive);
+        require!(
+            proposal.status == ProposalStatus::Active,
+            GovError::ProposalNotActive
+        );
         let clock = Clock::get()?;
-        require!(clock.unix_timestamp >= proposal.end_ts, GovError::VotingNotEnded);
+        require!(
+            clock.unix_timestamp >= proposal.end_ts,
+            GovError::VotingNotEnded
+        );
 
-        let total_votes = proposal.votes_for.checked_add(proposal.votes_against).ok_or(GovError::Overflow)?;
+        let total_votes = proposal
+            .votes_for
+            .checked_add(proposal.votes_against)
+            .ok_or(GovError::Overflow)?;
         let project = &ctx.accounts.project;
         let total_escrowed = project.total_raised;
         // sqrt(QUORUM_BPS% of total_raised) in same units as vote weights
@@ -138,7 +167,10 @@ pub mod governance {
 
     pub fn cancel_proposal(ctx: Context<CancelProposal>) -> Result<()> {
         let proposal = &mut ctx.accounts.proposal;
-        require!(proposal.status == ProposalStatus::Active, GovError::ProposalNotActive);
+        require!(
+            proposal.status == ProposalStatus::Active,
+            GovError::ProposalNotActive
+        );
         require!(
             ctx.accounts.creator.key() == proposal.creator,
             GovError::NotProposalCreator
