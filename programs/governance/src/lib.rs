@@ -4,7 +4,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
-declare_id!("AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK");
+declare_id!("8NhAWmnGX1dk5AUnt99MMUeZ5rjjtiRGHjrq5eeqsRAC");
 
 pub const QUORUM_BPS: u16 = 2000; // 20%
 /// Min voting period: 24h in prod; 1s when built with `--features governance/test` for tests.
@@ -45,7 +45,11 @@ pub mod governance {
             voting_period_secs >= MIN_VOTING_PERIOD_SECS,
             GovError::VotingPeriodTooShort
         );
-        require!(milestone_index < 5, GovError::InvalidMilestoneIndex);
+        // 0..5 = milestone release; 255 = material edit proposal
+        require!(
+            milestone_index < 5 || milestone_index == 255,
+            GovError::InvalidMilestoneIndex
+        );
 
         let attempt_acc = &mut ctx.accounts.proposal_attempt;
         require!(
@@ -177,6 +181,74 @@ pub mod governance {
             GovError::NotProposalCreator
         );
         proposal.status = ProposalStatus::Cancelled;
+        Ok(())
+    }
+
+    /// Finalize a material-edit proposal (milestone_index == 255). On pass, CPIs project_escrow::apply_material_edit.
+    pub fn finalize_material_edit_proposal(
+        ctx: Context<FinalizeMaterialEditProposal>,
+        new_terms_hash: [u8; 32],
+        refund_window_secs: i64,
+        new_goal: u64,
+        new_deadline: i64,
+        new_milestone_percentages: [u16; 5],
+    ) -> Result<()> {
+        let proposal = &mut ctx.accounts.proposal;
+        require!(
+            proposal.milestone_index == 255,
+            GovError::InvalidMilestoneIndex
+        );
+        require!(
+            proposal.status == ProposalStatus::Active,
+            GovError::ProposalNotActive
+        );
+        let clock = Clock::get()?;
+        require!(
+            clock.unix_timestamp >= proposal.end_ts,
+            GovError::VotingNotEnded
+        );
+
+        let total_votes = proposal
+            .votes_for
+            .checked_add(proposal.votes_against)
+            .ok_or(GovError::Overflow)?;
+        let project = &ctx.accounts.project;
+        let total_escrowed = project.total_raised;
+        let quorum_raw = (total_escrowed as u128 * QUORUM_BPS as u128 / 10_000) as u64;
+        let quorum_votes = sqrt_u64(quorum_raw);
+        require!(total_votes >= quorum_votes, GovError::QuorumNotMet);
+
+        let passed = proposal.votes_for > proposal.votes_against;
+        proposal.status = if passed {
+            ProposalStatus::Passed
+        } else {
+            ProposalStatus::Rejected
+        };
+
+        if passed {
+            let bump_seed = ctx.bumps.release_authority;
+            let seeds: &[&[u8]] = &[b"release_authority", &[bump_seed]];
+            let signer_seeds = &[seeds];
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.project_escrow_program.to_account_info(),
+                project_escrow::cpi::accounts::ApplyMaterialEdit {
+                    governance_authority: ctx.accounts.release_authority.to_account_info(),
+                    config: ctx.accounts.escrow_config.to_account_info(),
+                    project: ctx.accounts.project.to_account_info(),
+                    project_terms: ctx.accounts.project_terms.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                },
+                signer_seeds,
+            );
+            project_escrow::cpi::apply_material_edit(
+                cpi_ctx,
+                new_terms_hash,
+                refund_window_secs,
+                new_goal,
+                new_deadline,
+                new_milestone_percentages,
+            )?;
+        }
         Ok(())
     }
 }
@@ -311,7 +383,7 @@ pub struct FinalizeProposal<'info> {
 
     /// PDA that signs for governance CPI to project_escrow
     /// CHECK: validated by seeds
-    #[account(seeds = [b"release_authority"], bump)]
+    #[account(mut, seeds = [b"release_authority"], bump)]
     pub release_authority: UncheckedAccount<'info>,
 
     /// Project escrow config PDA (seeds = [b"config"]). Must match project_escrow program's config PDA.
@@ -342,6 +414,34 @@ pub struct CancelProposal<'info> {
 
     #[account(mut)]
     pub proposal: Account<'info, Proposal>,
+}
+
+#[derive(Accounts)]
+pub struct FinalizeMaterialEditProposal<'info> {
+    #[account(mut)]
+    pub proposal: Account<'info, Proposal>,
+
+    #[account(mut)]
+    pub project: Account<'info, project_escrow::Project>,
+
+    /// PDA that signs for governance CPI to project_escrow
+    /// CHECK: validated by seeds
+    #[account(mut, seeds = [b"release_authority"], bump)]
+    pub release_authority: UncheckedAccount<'info>,
+
+    #[account(
+        constraint = escrow_config.key() == Pubkey::find_program_address(&[b"config"], &project_escrow_program.key()).0
+    )]
+    pub escrow_config: Account<'info, project_escrow::Config>,
+
+    /// ProjectTerms PDA (seeds = [b"project_terms", project.key()]). May be uninitialized; project_escrow will init_if_needed.
+    /// CHECK: validated by project_escrow CPI
+    #[account(mut)]
+    pub project_terms: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+
+    pub project_escrow_program: Program<'info, project_escrow::program::ProjectEscrow>,
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token_interface::{Mint, MintTo, TokenAccount, TokenInterface};
 
-declare_id!("2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo");
+declare_id!("ERm6fSLrTxCBB7FtF6EnVWFrgCi3qvBZPuhMKxJczrfk");
 
 const DECIMALS: u8 = 9;
 pub const MAX_SUPPLY: u64 = 1_000_000_000 * (10u64).pow(DECIMALS as u32);

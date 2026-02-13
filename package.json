@@ -5,10 +5,15 @@
   "scripts": {
     "lint:fix": "prettier */*.js \"*.js\" -w",
     "test": "anchor test",
-    "test:full": "anchor test --provider.cluster localnet --provider.wallet ./scripts/test-wallet.json -- --features test"
+    "test:full": "bash ./scripts/run-test-full.sh",
+    "init-taste-mint": "ts-node scripts/init-taste-mint.ts",
+    "add-taste-metadata": "ts-node scripts/add-taste-metadata.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.0",
+    "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
+    "@metaplex-foundation/umi": "^1.2.0",
+    "@metaplex-foundation/umi-bundle-defaults": "^1.2.0",
     "@solana/spl-token": "^0.4.9",
     "@solana/web3.js": "^1.95.3"
   },

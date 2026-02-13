@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, MintTo, TokenAccount, TokenInterface};
 use project_escrow::{Backer, Project, ProjectStatus};
 
-declare_id!("GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE");
+declare_id!("4BjXzBKXQSjAmTbaYoexd4SYPHxBi5FTi1dvCCxgPkET");
 
 #[program]
 pub mod rwa_token {

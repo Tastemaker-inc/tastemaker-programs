@@ -4,9 +4,6 @@
 resolution = true
 skip-lint = false
 
-[test]
-upgradeable = true
-
 [programs.devnet]
 governance = "AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK"
 project_escrow = "bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym"
@@ -14,11 +11,10 @@ rwa_token = "GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE"
 taste_token = "2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo"
 
 [programs.localnet]
-# Use same program IDs as devnet so IDL matches deployed keypairs when testing locally
-governance = "AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK"
-project_escrow = "bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym"
-rwa_token = "GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE"
-taste_token = "2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo"
+governance = "8NhAWmnGX1dk5AUnt99MMUeZ5rjjtiRGHjrq5eeqsRAC"
+project_escrow = "2YH9c5BMDLNqQ7V9t3UF2x32xN8d8BukhhrJCduPQJip"
+rwa_token = "4BjXzBKXQSjAmTbaYoexd4SYPHxBi5FTi1dvCCxgPkET"
+taste_token = "ERm6fSLrTxCBB7FtF6EnVWFrgCi3qvBZPuhMKxJczrfk"
 
 [registry]
 url = "https://api.apr.dev"
@@ -34,3 +30,8 @@ members = ["programs/*"]
 test = "node scripts/patch-governance-idl.cjs && mkdir -p dist/tests && npx esbuild tests/exhaustive.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist/tests/exhaustive.js && npx mocha -t 1000000 dist/tests/exhaustive.js"
 
 [hooks]
+
+[test]
+startup_wait = 5000
+shutdown_wait = 2000
+upgradeable = true

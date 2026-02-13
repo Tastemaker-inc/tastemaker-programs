@@ -22,6 +22,8 @@ To run the full test suite (local validator, 40 backers, 5 milestones, ~7 min):
 npm run test:full
 ```
 
+If CI/test debugging gets stuck, read `docs/CI_AGENT_PLAYBOOK.md` before changing validator flow or wallet assumptions.
+
 ## Code Style
 
 - **Rust:** Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before committing.
@@ -45,6 +47,11 @@ Use imperative mood and a concise summary line, e.g.:
 
 - `Add error code for invalid milestone index`
 - `Fix PDA derivation in create_proposal`
+
+## Commit Signing
+
+- Use signed commits for release-critical changes: `git commit -S`.
+- Follow `docs/GIT_SIGNING_RULES.md` for expected SSH signing setup and troubleshooting.
 
 ## Issues
 

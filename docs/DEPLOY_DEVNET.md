@@ -28,16 +28,23 @@
    ```
    Or: `anchor deploy --provider.cluster devnet`
 
-4. **Initialize project_escrow config (once per deployment)**  
+4. **Initialize $TASTE mint (once per deployment)**  
+   The project_escrow and web app require the $TASTE mint to exist. From `tastemaker-programs` run:
+   ```bash
+   npm run init-taste-mint
+   ```
+   Uses your default Solana keypair (`~/.config/solana/id.json`) or `SOLANA_KEYPAIR`; ensure it has SOL on devnet. Idempotent: skips if mint already exists.
+
+5. **Initialize project_escrow config (once per deployment)**  
    The upgrade authority of the project_escrow program must call `initialize_config(governance_release_authority)` with the governance program's release PDA (e.g. `PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0]`). Pass the program account (project_escrow program id), the program's ProgramData account (PDA from BPF Loader Upgradeable), and the upgrade authority as signer. This records the only key that can call `release_milestone` / `complete_project`. For key rotation, call `update_config(new_authority)` with the same authority check.
 
-5. **Verify program IDs**  
+6. **Verify program IDs**  
    ```bash
    anchor keys list
    ```
    Confirms each keypair under `target/deploy/` matches the `declare_id!` in the corresponding program.
 
-6. **Record addresses**  
+7. **Record addresses**  
    Optionally store program IDs in `deployments/devnet.json` for frontends/scripts.
 
 ## Verified program IDs

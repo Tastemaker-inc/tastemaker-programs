@@ -110,6 +110,13 @@ function getBurnVaultAccounts(tasteMint: PublicKey, projectEscrowProgramId: Publ
   return { authority, tokenAccount };
 }
 
+function getProjectTermsPda(project: PublicKey, projectEscrowProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("project_terms"), project.toBuffer()],
+    projectEscrowProgramId
+  )[0];
+}
+
 function getProposalAttemptPda(project: PublicKey, governanceProgramId: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("proposal_attempt"), project.toBuffer()],
@@ -1777,6 +1784,106 @@ describe("tastemaker-programs exhaustive", function () {
       expect((proposal as { status: { rejected?: unknown } }).status?.rejected !== undefined || (proposal as { status: number }).status === 1).to.be.true;
       const project = await projectEscrow.account.project.fetch(rejectProjectPda);
       expect(project.currentMilestone).to.equal(0);
+
+      // Material-edit proposal (milestone 255) on same project: create, vote, finalize, opt_out_refund
+      const projectTermsPda = getProjectTermsPda(rejectProjectPda, projectEscrowProgramId);
+      const attemptPda2 = getProposalAttemptPda(rejectProjectPda, governance.programId);
+      const attempt2 = await getCurrentProposalAttempt(governance, attemptPda2);
+      const materialProposalPda = getProposalPda(rejectProjectPda, 255, attempt2, governance.programId);
+      const matEditVotingPeriod = new anchor.BN(3);
+      await governance.methods
+        .createProposal(
+          rejectProjectPda,
+          255,
+          "https://proof.example/material-edit",
+          matEditVotingPeriod,
+          new anchor.BN(attempt2)
+        )
+        .accounts({
+          artist: rejectArtist.publicKey,
+          proposalAttempt: attemptPda2,
+          proposal: materialProposalPda,
+          project: rejectProjectPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([rejectArtist])
+        .rpc();
+      for (let i = 0; i < 5; i++) {
+        const [backerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("backer"), rejectProjectPda.toBuffer(), backers[i].publicKey.toBuffer()],
+          projectEscrowProgramId
+        );
+        const [votePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("vote"), materialProposalPda.toBuffer(), backers[i].publicKey.toBuffer()],
+          governanceProgramId
+        );
+        await governance.methods
+          .castVote(true)
+          .accounts({
+            proposal: materialProposalPda,
+            voter: backers[i].publicKey,
+            backer: backerPda,
+            vote: votePda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([backers[i]])
+          .rpc();
+      }
+      await new Promise((r) => setTimeout(r, 4000));
+      const newTermsHash = Buffer.alloc(32);
+      newTermsHash.write("material-edit-terms-hash-v1");
+      const releaseAuthorityPda = PublicKey.findProgramAddressSync(
+        [Buffer.from("release_authority")],
+        governanceProgramId
+      )[0];
+      const releaseAuthorityLamports = await provider.connection.getBalance(releaseAuthorityPda);
+      if (releaseAuthorityLamports < 10_000_000) {
+        const sig = await provider.connection.requestAirdrop(releaseAuthorityPda, 10_000_000);
+        await provider.connection.confirmTransaction(sig, "confirmed");
+      }
+
+      await (governance.methods as { finalizeMaterialEditProposal: (a: number[], b: anchor.BN, c: anchor.BN, d: anchor.BN, e: number[]) => { accounts: (acc: Record<string, unknown>) => { rpc: () => Promise<string> } } })
+        .finalizeMaterialEditProposal(
+          Array.from(newTermsHash),
+          new anchor.BN(7 * 24 * 3600),
+          new anchor.BN(String(GOAL)),
+          new anchor.BN(Math.floor(Date.now() / 1000) + 365 * 24 * 3600),
+          [20, 20, 20, 20, 20]
+        )
+        .accounts({
+          proposal: materialProposalPda,
+          project: rejectProjectPda,
+          releaseAuthority: releaseAuthorityPda,
+          escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
+          projectTerms: projectTermsPda,
+          systemProgram: SystemProgram.programId,
+          projectEscrowProgram: projectEscrowProgramId,
+        })
+        .rpc();
+      const terms = await (projectEscrow.account as { projectTerms: { fetch: (p: PublicKey) => Promise<{ refundWindowEnd: { toNumber: () => number }; version: number }> } }).projectTerms.fetch(projectTermsPda);
+      expect(terms.version).to.equal(1);
+      const firstBackerPda = PublicKey.findProgramAddressSync(
+        [Buffer.from("backer"), rejectProjectPda.toBuffer(), backers[0].publicKey.toBuffer()],
+        projectEscrowProgramId
+      )[0];
+      const firstBackerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey);
+      await projectEscrow.methods
+        .optOutRefund()
+        .accounts({
+          backerWallet: backers[0].publicKey,
+          project: rejectProjectPda,
+          projectTerms: projectTermsPda,
+          backer: firstBackerPda,
+          backerTokenAccount: firstBackerAta,
+          escrow: escrowPda,
+          escrowAuthority,
+          tasteMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([backers[0]])
+        .rpc();
+      const backerAfter = await projectEscrow.account.backer.fetch(firstBackerPda);
+      expect(BigInt(backerAfter.amount.toString())).to.equal(0n);
     });
 
     it("quorum not met: finalize fails with QuorumNotMet", async () => {
@@ -1911,5 +2018,6 @@ describe("tastemaker-programs exhaustive", function () {
         expect(escrowAmt).to.equal(0n);
       }
     });
+
   });
 });

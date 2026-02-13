@@ -40,6 +40,14 @@ pub enum EscrowError {
     GovernanceAuthorityMismatch,
     #[msg("Only program upgrade authority can initialize config")]
     NotUpgradeAuthority,
+    #[msg("Refund window is not open")]
+    RefundWindowNotOpen,
+    #[msg("Refund window has closed")]
+    RefundWindowClosed,
+    #[msg("Already opted out")]
+    AlreadyOptedOut,
+    #[msg("Milestones already released; opt-out only when current_milestone is 0")]
+    MilestonesAlreadyReleased,
 }
 
 pub const MAX_MILESTONES: usize = 5;
@@ -412,6 +420,108 @@ pub mod project_escrow {
         msg!("Refunded {} $TASTE", amount);
         Ok(())
     }
+
+    /// Governance-only: apply approved material edit (new terms hash, optional Project field updates) and open refund window.
+    pub fn apply_material_edit(
+        ctx: Context<ApplyMaterialEdit>,
+        new_terms_hash: [u8; 32],
+        refund_window_secs: i64,
+        new_goal: u64,
+        new_deadline: i64,
+        new_milestone_percentages: [u16; MAX_MILESTONES],
+    ) -> Result<()> {
+        let sum: u16 = new_milestone_percentages.iter().sum();
+        require!(sum == 100, EscrowError::InvalidMilestonePercentages);
+        let project = &mut ctx.accounts.project;
+        require!(
+            project.status == ProjectStatus::Active,
+            EscrowError::ProjectNotActive
+        );
+
+        let clock = Clock::get()?;
+        let refund_window_end = clock
+            .unix_timestamp
+            .checked_add(refund_window_secs)
+            .ok_or(EscrowError::Overflow)?;
+
+        let terms = &mut ctx.accounts.project_terms;
+        terms.terms_hash = new_terms_hash;
+        terms.version = terms.version.saturating_add(1);
+        terms.refund_window_end = refund_window_end;
+
+        project.goal = new_goal;
+        project.deadline = new_deadline;
+        project.milestone_percentages = new_milestone_percentages;
+
+        msg!(
+            "Material edit applied: version {}, refund window until {}",
+            terms.version,
+            refund_window_end
+        );
+        Ok(())
+    }
+
+    /// Backer opts out during the material-edit refund window; receives their backing amount back.
+    pub fn opt_out_refund(ctx: Context<OptOutRefund>) -> Result<()> {
+        let project = &ctx.accounts.project;
+        require!(
+            project.status == ProjectStatus::Active,
+            EscrowError::ProjectNotActive
+        );
+        let terms = &ctx.accounts.project_terms;
+        require!(
+            terms.refund_window_end > 0,
+            EscrowError::RefundWindowNotOpen
+        );
+        let clock = Clock::get()?;
+        require!(
+            clock.unix_timestamp < terms.refund_window_end,
+            EscrowError::RefundWindowClosed
+        );
+        require!(
+            project.current_milestone == 0,
+            EscrowError::MilestonesAlreadyReleased
+        );
+        let amount = ctx.accounts.backer.amount;
+        require!(amount > 0, EscrowError::AlreadyOptedOut);
+
+        let project_key = project.key();
+        let seeds = &[
+            b"project",
+            project_key.as_ref(),
+            &[ctx.bumps.escrow_authority],
+        ];
+        anchor_spl::token_interface::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                TransferChecked {
+                    from: ctx.accounts.escrow.to_account_info(),
+                    mint: ctx.accounts.taste_mint.to_account_info(),
+                    to: ctx.accounts.backer_token_account.to_account_info(),
+                    authority: ctx.accounts.escrow_authority.to_account_info(),
+                },
+                &[seeds],
+            ),
+            amount,
+            ctx.accounts.taste_mint.decimals,
+        )?;
+
+        let backer_acc = &mut ctx.accounts.backer;
+        backer_acc.amount = 0;
+
+        let project_acc = &mut ctx.accounts.project;
+        project_acc.total_raised = project_acc
+            .total_raised
+            .checked_sub(amount)
+            .ok_or(EscrowError::Overflow)?;
+        project_acc.backer_count = project_acc
+            .backer_count
+            .checked_sub(1)
+            .ok_or(EscrowError::Overflow)?;
+
+        msg!("Opt-out refund {} $TASTE", amount);
+        Ok(())
+    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
@@ -452,6 +562,15 @@ pub struct Backer {
 #[account]
 pub struct Config {
     pub governance_release_authority: Pubkey,
+}
+
+/// Tracks material-edit terms and refund window. Created when governance applies a material edit.
+#[account]
+pub struct ProjectTerms {
+    pub terms_hash: [u8; 32],
+    pub version: u32,
+    /// Unix timestamp when refund window closes; 0 = no active window.
+    pub refund_window_end: i64,
 }
 
 #[derive(Accounts)]
@@ -646,6 +765,67 @@ pub struct Refund<'info> {
 
     #[account(mut)]
     pub project: Account<'info, Project>,
+
+    #[account(
+        mut,
+        has_one = project,
+        constraint = backer.wallet == backer_wallet.key() @ EscrowError::NotBacker,
+    )]
+    pub backer: Account<'info, Backer>,
+
+    #[account(mut)]
+    pub backer_token_account: InterfaceAccount<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub escrow: InterfaceAccount<'info, TokenAccount>,
+
+    /// CHECK: PDA
+    #[account(seeds = [b"project", project.key().as_ref()], bump)]
+    pub escrow_authority: UncheckedAccount<'info>,
+
+    pub taste_mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+pub struct ApplyMaterialEdit<'info> {
+    #[account(mut)]
+    pub governance_authority: Signer<'info>,
+
+    #[account(
+        seeds = [b"config"],
+        bump,
+        constraint = config.governance_release_authority == governance_authority.key() @ EscrowError::GovernanceAuthorityMismatch
+    )]
+    pub config: Account<'info, Config>,
+
+    #[account(mut)]
+    pub project: Account<'info, Project>,
+
+    #[account(
+        init_if_needed,
+        payer = governance_authority,
+        space = 8 + 32 + 4 + 8,
+        seeds = [b"project_terms", project.key().as_ref()],
+        bump,
+    )]
+    pub project_terms: Account<'info, ProjectTerms>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct OptOutRefund<'info> {
+    pub backer_wallet: Signer<'info>,
+
+    #[account(mut)]
+    pub project: Account<'info, Project>,
+
+    #[account(
+        seeds = [b"project_terms", project.key().as_ref()],
+        bump,
+    )]
+    pub project_terms: Account<'info, ProjectTerms>,
 
     #[account(
         mut,
