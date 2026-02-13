@@ -21,8 +21,9 @@
    ```bash
    solana program show bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym --url devnet
    solana program show AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK --url devnet
+   solana program show 6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN --url devnet
    ```
-   Confirm `Authority` is `F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU`.
+   Confirm `Authority` is `F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU`. For first-time deploy of `otc_market`, the program may not exist yet; deploy in step 5 then verify in step 6.
 
 3. **Temporarily align on-chain program IDs for upgrade build**
    - This repository keeps local test IDs in `declare_id!` for deterministic CI.
@@ -49,18 +50,27 @@
      --upgrade-authority ~/.config/solana/devnet-deploy.json \
      --keypair ~/.config/solana/devnet-deploy.json \
      --url devnet
+
+   solana program deploy target/deploy/otc_market.so \
+     --program-id 6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN \
+     --upgrade-authority ~/.config/solana/devnet-deploy.json \
+     --keypair ~/.config/solana/devnet-deploy.json \
+     --url devnet
    ```
+   **Note:** For first-time deploy of `otc_market`, ensure the keypair exists: `solana-keygen new -o target/deploy/otc_market-keypair.json --no-bip39-passphrase --force` (only if missing), then `anchor keys sync` so `declare_id!` matches. The web marketplace page requires this program on devnet.
 
 6. **Verify upgrades**
    ```bash
    solana program show bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym --url devnet
    solana program show AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK --url devnet
+   solana program show 6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN --url devnet
    ```
    Confirm `Last Deployed In Slot` changed and authority is unchanged.
 
 7. **Revert `declare_id!` files back to local CI/test IDs**
    - `project_escrow/src/lib.rs`: `2YH9c5BMDLNqQ7V9t3UF2x32xN8d8BukhhrJCduPQJip`
    - `governance/src/lib.rs`: `8NhAWmnGX1dk5AUnt99MMUeZ5rjjtiRGHjrq5eeqsRAC`
+   - `otc_market`: no revert needed — it uses the same program ID for localnet and devnet (`6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN`).
    - Run CI/local tests again (`npm run test:full`) before committing.
 
 8. **Initialize $TASTE mint (once per deployment/environment)**  
@@ -95,8 +105,9 @@ Example output (your IDs will differ):
 ```
 taste_token:    2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo
 project_escrow: bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym
-governance:      AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK
-rwa_token:      GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE
+governance:     AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK
+rwa_token:     GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE
+otc_market:     6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN
 ```
 
 Ensure these match `[programs.devnet]` in `Anchor.toml` and each program's `declare_id!(...)` in `src/lib.rs`. Use these IDs in Solana Explorer or for verification.

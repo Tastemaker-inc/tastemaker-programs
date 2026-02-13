@@ -30,6 +30,7 @@ Do not bypass this wrapper unless you are intentionally debugging validator beha
 - **Never rotate upgrade authority** during CI debugging.
 - **Never treat test wallet generation as deploy authority changes.**
 - Keep `declare_id!` values and `Anchor.toml` program IDs aligned.
+- **New programs**: Before `anchor keys sync`, ensure `target/deploy/<program>-keypair.json` exists (e.g. generate once with `solana-keygen new -o target/deploy/otc_market-keypair.json --no-bip39-passphrase --force`). CI cache may restore `target/` so keypairs persist across runs.
 
 If you see upgrade-authority mismatch errors in local tests, it is almost always stale validator state or wrong wallet context, not a reason to change deployed identities.
 
@@ -104,3 +105,4 @@ Before committing:
   - `--url devnet`
   - `--keypair ~/.config/solana/devnet-deploy.json`
   - `--upgrade-authority ~/.config/solana/devnet-deploy.json`
+- Programs to deploy/upgrade on devnet: **project_escrow**, **governance**, **otc_market**. Full steps (including OTC market) are in `docs/DEPLOY_DEVNET.md`. The web marketplace requires `otc_market` to be deployed for create/accept offers to work.
