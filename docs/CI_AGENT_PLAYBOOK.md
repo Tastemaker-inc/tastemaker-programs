@@ -92,3 +92,15 @@ Before committing:
 2. Build + fmt + clippy checks pass.
 3. No temporary artifacts (`.validator-test.log`, temp ledgers, scratch files) are staged.
 4. No changes to deploy identities/authorities unless explicitly requested.
+
+## 7) Deploy key usage (for upgrade tasks)
+
+- Do not scan the filesystem for "possible keypairs".
+- Use the documented devnet upgrade authority directly:
+  - `~/.config/solana/devnet-deploy.json`
+  - pubkey `F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU`
+- Never use `scripts/test-wallet.json` for devnet deploy/upgrade.
+- Always pass explicit flags in deploy commands:
+  - `--url devnet`
+  - `--keypair ~/.config/solana/devnet-deploy.json`
+  - `--upgrade-authority ~/.config/solana/devnet-deploy.json`
