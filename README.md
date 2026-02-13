@@ -12,6 +12,7 @@ On-chain programs for [TasteMaker](https://tastemaker.music): platform token ($T
 | **project_escrow** | Create project, fund with $TASTE; milestone release only via governance CPI. `release_milestone` / `complete_project` require the governance release PDA as signer (no admin key). |
 | **governance** | Proposals + quadratic voting; finalize CPIs `release_milestone` via release PDA signer. |
 | **rwa_token** | Per-project RWA mint; backers claim by share; close to freeze. |
+| **otc_market** | OTC marketplace: create/cancel/accept offers for IOU and RWA tokens, priced in $TASTE (Token-2022 only). |
 
 ## Requirements
 
@@ -57,7 +58,7 @@ Uses localnet (same program IDs as devnet per `Anchor.toml`). Build with test fe
 anchor deploy --provider.cluster devnet
 ```
 
-See `docs/ARCHITECTURE.md` and `docs/ESCROW_FLOW.md`, `docs/GOVERNANCE_FLOW.md`, `docs/RWA_PATTERNS.md` for flows and PDAs.
+See `public_docs/README.md` for public runbooks and flow docs.
 
 ## Official Deployments
 
@@ -72,10 +73,10 @@ Programs must be deployed to devnet for the Explorer links to show program data.
 
 ## Docs
 
-- [ARCHITECTURE](docs/ARCHITECTURE.md): programs, PDAs, build/test/deploy
-- [ESCROW_FLOW](docs/ESCROW_FLOW.md): project lifecycle and escrow release
-- [GOVERNANCE_FLOW](docs/GOVERNANCE_FLOW.md): proposals, voting, CPI to escrow
-- [RWA_PATTERNS](docs/RWA_PATTERNS.md): per-project RWA mint and claim
+- [Public docs index](public_docs/README.md)
+- [Deploy Devnet](public_docs/DEPLOY_DEVNET.md)
+- [CI Debug Guide](public_docs/CI_DEBUG_GUIDE.md)
+- [OTC Marketplace](public_docs/OTC_MARKETPLACE.md)
 
 ## Security
 

@@ -17,3 +17,6 @@ test-ledger
 *keypair*.json
 id.json
 deploy-keypair.json
+
+# Internal team runbooks are local-only (not pushed publicly)
+docs/
