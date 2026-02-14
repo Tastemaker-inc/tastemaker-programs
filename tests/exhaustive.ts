@@ -729,6 +729,160 @@ describe("tastemaker-programs exhaustive", function () {
       expect(state.authority.equals(artist.publicKey)).to.be.true;
     });
 
+    const MPL_TOKEN_METADATA_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+    const SYSVAR_INSTRUCTIONS_ID = new PublicKey("Sysvar1nstructions1111111111111111111111111");
+    const isProgramDeployed = async (programId: PublicKey): Promise<boolean> => {
+      const accountInfo = await provider.connection.getAccountInfo(programId);
+      return !!accountInfo?.executable;
+    };
+
+    it("rejects name/symbol/uri over bounds", async function () {
+      if (typeof (rwaToken.methods as { initializeRwaMetadata?: unknown }).initializeRwaMetadata !== "function") {
+        this.skip();
+        return;
+      }
+      const longName = "a".repeat(33);
+      const [metadataGuardPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_metadata"), projectPda.toBuffer()],
+        rwaTokenProgramId
+      );
+      const [metadataPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("metadata"), MPL_TOKEN_METADATA_ID.toBuffer(), rwaMintPda.toBuffer()],
+        MPL_TOKEN_METADATA_ID
+      );
+      await expect(
+        (rwaToken.methods as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata(longName, "S", "https://x.com")
+          .accounts({
+            authority: artist.publicKey,
+            rwaState: rwaStatePda,
+            rwaMint: rwaMintPda,
+            rwaMintAuthority: PublicKey.findProgramAddressSync(
+              [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
+              rwaTokenProgramId
+            )[0],
+            metadataGuard: metadataGuardPda,
+            metadata: metadataPda,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            systemProgram: SystemProgram.programId,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([artist])
+          .rpc()
+      ).to.be.rejected;
+    });
+
+    it("non-authority cannot initialize RWA metadata", async function () {
+      if (typeof (rwaToken.methods as { initializeRwaMetadata?: unknown }).initializeRwaMetadata !== "function") {
+        this.skip();
+        return;
+      }
+      const [metadataGuardPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_metadata"), projectPda.toBuffer()],
+        rwaTokenProgramId
+      );
+      const [metadataPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("metadata"), MPL_TOKEN_METADATA_ID.toBuffer(), rwaMintPda.toBuffer()],
+        MPL_TOKEN_METADATA_ID
+      );
+      await expect(
+        (rwaToken.methods as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata("Bad", "B", "https://x.com")
+          .accounts({
+            authority: backers[0].publicKey,
+            rwaState: rwaStatePda,
+            rwaMint: rwaMintPda,
+            rwaMintAuthority: PublicKey.findProgramAddressSync(
+              [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
+              rwaTokenProgramId
+            )[0],
+            metadataGuard: metadataGuardPda,
+            metadata: metadataPda,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            systemProgram: SystemProgram.programId,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([backers[0]])
+          .rpc()
+      ).to.be.rejectedWith(/NotAuthority|not authority|Constraint|rwa_state|0x/i);
+    });
+
+    it("authority initializes RWA metadata once", async function () {
+      if (typeof (rwaToken.methods as { initializeRwaMetadata?: unknown }).initializeRwaMetadata !== "function") {
+        this.skip();
+        return;
+      }
+      if (!(await isProgramDeployed(MPL_TOKEN_METADATA_ID))) {
+        this.skip();
+        return;
+      }
+      const [metadataGuardPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_metadata"), projectPda.toBuffer()],
+        rwaTokenProgramId
+      );
+      const [metadataPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("metadata"), MPL_TOKEN_METADATA_ID.toBuffer(), rwaMintPda.toBuffer()],
+        MPL_TOKEN_METADATA_ID
+      );
+      await (rwaToken.methods as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata("Test RWA", "TRWA", "https://example.com/metadata.json")
+        .accounts({
+          authority: artist.publicKey,
+          rwaState: rwaStatePda,
+          rwaMint: rwaMintPda,
+          rwaMintAuthority: PublicKey.findProgramAddressSync(
+            [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
+            rwaTokenProgramId
+          )[0],
+          metadataGuard: metadataGuardPda,
+          metadata: metadataPda,
+          tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+          systemProgram: SystemProgram.programId,
+          sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([artist])
+        .rpc();
+    });
+
+    it("second initialize_rwa_metadata fails (guard already exists)", async function () {
+      if (typeof (rwaToken.methods as { initializeRwaMetadata?: unknown }).initializeRwaMetadata !== "function") {
+        this.skip();
+        return;
+      }
+      if (!(await isProgramDeployed(MPL_TOKEN_METADATA_ID))) {
+        this.skip();
+        return;
+      }
+      const [metadataGuardPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_metadata"), projectPda.toBuffer()],
+        rwaTokenProgramId
+      );
+      const [metadataPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("metadata"), MPL_TOKEN_METADATA_ID.toBuffer(), rwaMintPda.toBuffer()],
+        MPL_TOKEN_METADATA_ID
+      );
+      await expect(
+        (rwaToken.methods as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata("Again", "A", "https://again.com")
+          .accounts({
+            authority: artist.publicKey,
+            rwaState: rwaStatePda,
+            rwaMint: rwaMintPda,
+            rwaMintAuthority: PublicKey.findProgramAddressSync(
+              [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
+              rwaTokenProgramId
+            )[0],
+            metadataGuard: metadataGuardPda,
+            metadata: metadataPda,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            systemProgram: SystemProgram.programId,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([artist])
+          .rpc()
+      ).to.be.rejected;
+    });
+
     it("all backers claim RWA tokens", async () => {
       const project = await projectEscrow.account.project.fetch(projectPda);
       const totalRaised = BigInt(project.totalRaised.toString());

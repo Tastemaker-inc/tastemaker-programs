@@ -2,9 +2,20 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, MintTo, TokenAccount, TokenInterface};
+use mpl_token_metadata::{
+    accounts::Metadata,
+    instructions::CreateV1CpiBuilder,
+    types::TokenStandard,
+    ID as MPL_TOKEN_METADATA_ID,
+};
 use project_escrow::{Backer, Project, ProjectStatus};
 
 declare_id!("4BjXzBKXQSjAmTbaYoexd4SYPHxBi5FTi1dvCCxgPkET");
+
+/// Max lengths for RWA metadata (aligned with Metaplex Token Metadata).
+const MAX_NAME_LEN: usize = 32;
+const MAX_SYMBOL_LEN: usize = 10;
+const MAX_URI_LEN: usize = 200;
 
 #[program]
 pub mod rwa_token {
@@ -102,6 +113,65 @@ pub mod rwa_token {
         msg!("RWA mint frozen");
         Ok(())
     }
+
+    /// One-time init of Metaplex Token Metadata for the RWA mint. Callable only by `rwa_state.authority`.
+    /// Name/symbol/uri are bounded; second call fails (metadata guard prevents re-init).
+    pub fn initialize_rwa_metadata(
+        ctx: Context<InitializeRwaMetadata>,
+        name: String,
+        symbol: String,
+        uri: String,
+    ) -> Result<()> {
+        let state = &ctx.accounts.rwa_state;
+        require!(
+            ctx.accounts.authority.key() == state.authority,
+            RwaError::NotAuthority
+        );
+
+        require!(name.len() <= MAX_NAME_LEN, RwaError::MetadataNameTooLong);
+        require!(symbol.len() <= MAX_SYMBOL_LEN, RwaError::MetadataSymbolTooLong);
+        require!(uri.len() <= MAX_URI_LEN, RwaError::MetadataUriTooLong);
+
+        let (metadata_pda, _) = Metadata::find_pda(&ctx.accounts.rwa_mint.key());
+        require!(
+            ctx.accounts.metadata.key() == metadata_pda,
+            RwaError::InvalidMetadataAccount
+        );
+        require!(
+            ctx.accounts.token_metadata_program.key() == MPL_TOKEN_METADATA_ID,
+            RwaError::InvalidTokenMetadataProgram
+        );
+
+        let mint_key = ctx.accounts.rwa_mint.key();
+        let (_, bump) = Pubkey::find_program_address(
+            &[b"rwa_mint_authority", state.project.as_ref()],
+            ctx.program_id,
+        );
+        let authority_seeds: &[&[u8]] = &[b"rwa_mint_authority", state.project.as_ref(), &[bump]];
+        let signer_seeds: &[&[&[u8]]] = &[authority_seeds];
+
+        CreateV1CpiBuilder::new(ctx.accounts.token_metadata_program.as_ref())
+            .metadata(ctx.accounts.metadata.as_ref())
+            .master_edition(None)
+            .mint(ctx.accounts.rwa_mint.as_ref(), false)
+            .authority(ctx.accounts.rwa_mint_authority.as_ref())
+            .payer(ctx.accounts.authority.as_ref())
+            .update_authority(ctx.accounts.authority.as_ref(), true)
+            .system_program(ctx.accounts.system_program.as_ref())
+            .sysvar_instructions(ctx.accounts.sysvar_instructions.as_ref())
+            .spl_token_program(Some(ctx.accounts.token_program.as_ref()))
+            .name(name)
+            .symbol(symbol)
+            .uri(uri)
+            .seller_fee_basis_points(0)
+            .primary_sale_happened(false)
+            .is_mutable(true)
+            .token_standard(TokenStandard::Fungible)
+            .invoke_signed(signer_seeds)?;
+
+        msg!("RWA metadata initialized for mint {}", mint_key);
+        Ok(())
+    }
 }
 
 #[error_code]
@@ -128,6 +198,16 @@ pub enum RwaError {
     NotAuthority,
     #[msg("Project not completed")]
     ProjectNotCompleted,
+    #[msg("Metadata name too long")]
+    MetadataNameTooLong,
+    #[msg("Metadata symbol too long")]
+    MetadataSymbolTooLong,
+    #[msg("Metadata URI too long")]
+    MetadataUriTooLong,
+    #[msg("Invalid metadata account")]
+    InvalidMetadataAccount,
+    #[msg("Invalid token metadata program")]
+    InvalidTokenMetadataProgram,
 }
 
 #[account]
@@ -143,6 +223,10 @@ pub struct RwaState {
 pub struct ClaimRecord {
     pub claimed: bool,
 }
+
+/// One-time guard: once this PDA exists, initialize_rwa_metadata cannot run again for this project.
+#[account]
+pub struct RwaMetadataGuard {}
 
 #[derive(Accounts)]
 pub struct InitializeRwaMint<'info> {
@@ -232,4 +316,51 @@ pub struct CloseDistribution<'info> {
 
     #[account(mut)]
     pub rwa_state: Account<'info, RwaState>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeRwaMetadata<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(constraint = rwa_state.authority == authority.key())]
+    pub rwa_state: Account<'info, RwaState>,
+
+    #[account(
+        mut,
+        seeds = [b"rwa_mint", rwa_state.project.as_ref()],
+        bump,
+    )]
+    pub rwa_mint: InterfaceAccount<'info, Mint>,
+
+    /// CHECK: PDA validated by seeds; signs for Metaplex CreateV1
+    #[account(seeds = [b"rwa_mint_authority", rwa_state.project.as_ref()], bump)]
+    pub rwa_mint_authority: UncheckedAccount<'info>,
+
+    /// One-time guard: init here so second call fails (account already exists).
+    #[account(
+        init,
+        payer = authority,
+        space = 8,
+        seeds = [b"rwa_metadata", rwa_state.project.as_ref()],
+        bump,
+    )]
+    pub metadata_guard: Account<'info, RwaMetadataGuard>,
+
+    /// Metaplex metadata PDA (['metadata', MPL_TOKEN_METADATA_ID, mint]); validated in handler.
+    /// CHECK: Validated against Metadata::find_pda(rwa_mint.key()) in instruction
+    #[account(mut)]
+    pub metadata: UncheckedAccount<'info>,
+
+    /// Metaplex Token Metadata program
+    /// CHECK: Validated in instruction (must be MPL_TOKEN_METADATA_ID)
+    pub token_metadata_program: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+
+    /// Sysvar Instructions (required by Metaplex CreateV1)
+    /// CHECK: Required by Metaplex
+    pub sysvar_instructions: UncheckedAccount<'info>,
+
+    pub token_program: Interface<'info, TokenInterface>,
 }

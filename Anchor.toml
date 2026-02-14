@@ -6,12 +6,14 @@ skip-lint = false
 
 [programs.devnet]
 governance = "AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK"
+otc_market = "6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN"
 project_escrow = "bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym"
 rwa_token = "GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE"
 taste_token = "2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo"
 
 [programs.localnet]
 governance = "8NhAWmnGX1dk5AUnt99MMUeZ5rjjtiRGHjrq5eeqsRAC"
+otc_market = "6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN"
 project_escrow = "2YH9c5BMDLNqQ7V9t3UF2x32xN8d8BukhhrJCduPQJip"
 rwa_token = "4BjXzBKXQSjAmTbaYoexd4SYPHxBi5FTi1dvCCxgPkET"
 taste_token = "ERm6fSLrTxCBB7FtF6EnVWFrgCi3qvBZPuhMKxJczrfk"
@@ -27,7 +29,7 @@ wallet = "~/.config/solana/id.json"
 members = ["programs/*"]
 
 [scripts]
-test = "node scripts/patch-governance-idl.cjs && mkdir -p dist/tests && npx esbuild tests/exhaustive.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist/tests/exhaustive.js && npx mocha -t 1000000 dist/tests/exhaustive.js"
+test = "node scripts/patch-governance-idl.cjs && mkdir -p dist/tests && npx esbuild tests/exhaustive.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist/tests/exhaustive.js && npx esbuild tests/otc_market.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist/tests/otc_market.js && npx mocha -t 1000000 dist/tests/exhaustive.js dist/tests/otc_market.js"
 
 [hooks]
 

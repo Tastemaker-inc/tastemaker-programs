@@ -23,11 +23,15 @@ import {
 import * as fs from "fs";
 import * as path from "path";
 
-const TASTE_TOKEN_PROGRAM_ID = new PublicKey(
-  "2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo"
-);
+const DEVNET_TASTE_TOKEN = "2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo";
+const LOCALNET_TASTE_TOKEN = "ERm6fSLrTxCBB7FtF6EnVWFrgCi3qvBZPuhMKxJczrfk";
 const RPC =
   process.env.SOLANA_RPC_URL ?? process.env.ANCHOR_PROVIDER_URL ?? "https://api.devnet.solana.com";
+const isLocal = RPC.includes("127.0.0.1") || RPC.includes("localhost");
+const TASTE_TOKEN_PROGRAM_ID = new PublicKey(
+  process.env.TASTE_TOKEN_PROGRAM_ID ??
+    (isLocal ? LOCALNET_TASTE_TOKEN : DEVNET_TASTE_TOKEN)
+);
 
 const DEFAULT_DEVNET_DEPLOY_KEYPAIR = path.join(
   process.env.HOME ?? require("os").homedir(),
@@ -51,7 +55,8 @@ async function main() {
 
   const idlPath = path.join(__dirname, "..", "idl", "taste_token.json");
   const idl = JSON.parse(fs.readFileSync(idlPath, "utf8"));
-  const program = new Program(idl, provider);
+  const programId = TASTE_TOKEN_PROGRAM_ID;
+  const program = new Program({ ...idl, address: programId.toBase58() }, provider);
 
   const [mintPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("taste_mint")],

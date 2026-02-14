@@ -6,11 +6,18 @@ Use this sequence first when debugging CI failures in `tastemaker-programs`.
 
 From repo root:
 
+0. Ensure Rust toolchain is active (if rustup is installed but no default toolchain):
+   - `rustup default stable`
 1. `anchor keys sync`
 2. `anchor build`
 3. `cargo fmt --all -- --check`
 4. `cargo clippy --all-targets -- -D warnings -A unexpected_cfgs`
 5. `npm run test:full`
+
+Notes:
+
+- If tests depend on newly added instructions/accounts, run `anchor build` first to refresh `target/idl/*.json`.
+- `unexpected_cfgs` warnings are common with Anchor macros; treat runtime/test failures as the primary signal.
 
 ## Debug discipline
 

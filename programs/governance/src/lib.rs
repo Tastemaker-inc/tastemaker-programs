@@ -77,6 +77,12 @@ pub mod governance {
         p.start_ts = start_ts;
         p.end_ts = end_ts;
         p.creator = ctx.accounts.artist.key();
+        msg!(
+            "Proposal created: project {} milestone {} proof_uri_len {}",
+            project_key,
+            milestone_index,
+            p.proof_uri.len()
+        );
         Ok(())
     }
 
@@ -114,6 +120,13 @@ pub mod governance {
                 .checked_add(weight)
                 .ok_or(GovError::Overflow)?;
         }
+        let side_str = if side { "for" } else { "against" };
+        msg!(
+            "Vote cast: proposal {} side {} weight {}",
+            ctx.accounts.proposal.key(),
+            side_str,
+            weight
+        );
         Ok(())
     }
 
@@ -167,6 +180,12 @@ pub mod governance {
             );
             project_escrow::cpi::release_milestone(cpi_ctx)?;
         }
+        let status_str = if passed { "Passed" } else { "Rejected" };
+        msg!(
+            "Proposal finalized: {} status {}",
+            ctx.accounts.proposal.key(),
+            status_str
+        );
         Ok(())
     }
 
@@ -181,6 +200,7 @@ pub mod governance {
             GovError::NotProposalCreator
         );
         proposal.status = ProposalStatus::Cancelled;
+        msg!("Proposal cancelled: {}", ctx.accounts.proposal.key());
         Ok(())
     }
 
@@ -249,6 +269,12 @@ pub mod governance {
                 new_milestone_percentages,
             )?;
         }
+        let status_str = if passed { "Passed" } else { "Rejected" };
+        msg!(
+            "Material-edit proposal finalized: {} status {}",
+            ctx.accounts.proposal.key(),
+            status_str
+        );
         Ok(())
     }
 }

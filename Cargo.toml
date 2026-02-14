@@ -4,6 +4,7 @@ members = [
     "programs/project_escrow",
     "programs/governance",
     "programs/rwa_token",
+    "programs/otc_market",
 ]
 resolver = "2"
 
