@@ -3,9 +3,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, MintTo, TokenAccount, TokenInterface};
 use mpl_token_metadata::{
-    accounts::Metadata,
-    instructions::CreateV1CpiBuilder,
-    types::TokenStandard,
+    accounts::Metadata, instructions::CreateV1CpiBuilder, types::TokenStandard,
     ID as MPL_TOKEN_METADATA_ID,
 };
 use project_escrow::{Backer, Project, ProjectStatus};
@@ -129,7 +127,10 @@ pub mod rwa_token {
         );
 
         require!(name.len() <= MAX_NAME_LEN, RwaError::MetadataNameTooLong);
-        require!(symbol.len() <= MAX_SYMBOL_LEN, RwaError::MetadataSymbolTooLong);
+        require!(
+            symbol.len() <= MAX_SYMBOL_LEN,
+            RwaError::MetadataSymbolTooLong
+        );
         require!(uri.len() <= MAX_URI_LEN, RwaError::MetadataUriTooLong);
 
         let (metadata_pda, _) = Metadata::find_pda(&ctx.accounts.rwa_mint.key());
