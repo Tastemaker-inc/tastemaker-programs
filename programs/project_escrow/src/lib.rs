@@ -5,6 +5,21 @@ use anchor_spl::token_interface::{Burn, Mint, TokenAccount, TokenInterface, Tran
 
 declare_id!("2YH9c5BMDLNqQ7V9t3UF2x32xN8d8BukhhrJCduPQJip");
 
+/// Babylonian method for quadratic vote weight (same as governance).
+#[inline]
+fn sqrt_u64(x: u64) -> u64 {
+    if x == 0 {
+        return 0;
+    }
+    let mut z = x.div_ceil(2);
+    let mut y = x;
+    while z < y {
+        y = z;
+        z = (x / z + z) / 2;
+    }
+    y
+}
+
 /// Upgradeable loader: Program variant.
 const UPGRADEABLE_LOADER_PROGRAM_STATE: u8 = 2;
 /// Upgradeable loader: ProgramData variant.
@@ -128,6 +143,28 @@ pub mod project_escrow {
         Ok(())
     }
 
+    /// Set or overwrite total_vote_weight for a project (backfill for existing projects). Only upgrade authority.
+    pub fn set_vote_weight(ctx: Context<SetVoteWeight>, total_vote_weight: u64) -> Result<()> {
+        let program_account = ctx.accounts.program_account.try_borrow_data()?;
+        let program_data_account = ctx.accounts.program_data_account.try_borrow_data()?;
+        require_upgrade_authority(
+            ctx.program_id,
+            &ctx.accounts.program_account.key(),
+            &program_account,
+            &ctx.accounts.program_data_account.key(),
+            &program_data_account,
+            &ctx.accounts.authority.key(),
+        )?;
+        let vw = &mut ctx.accounts.vote_weight;
+        vw.total_vote_weight = total_vote_weight;
+        msg!(
+            "Vote weight set to {} for project {}",
+            total_vote_weight,
+            ctx.accounts.project.key()
+        );
+        Ok(())
+    }
+
     /// Update the stored governance release authority (key rotation). Only the program upgrade authority can call this.
     pub fn update_config(
         ctx: Context<UpdateConfig>,
@@ -236,6 +273,13 @@ pub mod project_escrow {
                 .checked_add(1)
                 .ok_or(EscrowError::Overflow)?;
         }
+
+        let weight_delta = sqrt_u64(to_escrow);
+        let vw = &mut ctx.accounts.vote_weight;
+        vw.total_vote_weight = vw
+            .total_vote_weight
+            .checked_add(weight_delta)
+            .ok_or(EscrowError::Overflow)?;
 
         let decimals = ctx.accounts.taste_mint.decimals;
 
@@ -417,6 +461,10 @@ pub mod project_escrow {
 
         let backer_acc = &mut ctx.accounts.backer;
         backer_acc.amount = 0;
+
+        let vw = &mut ctx.accounts.vote_weight;
+        vw.total_vote_weight = vw.total_vote_weight.saturating_sub(sqrt_u64(amount));
+
         msg!("Refunded {} $TASTE", amount);
         Ok(())
     }
@@ -519,6 +567,9 @@ pub mod project_escrow {
             .checked_sub(1)
             .ok_or(EscrowError::Overflow)?;
 
+        let vw = &mut ctx.accounts.vote_weight;
+        vw.total_vote_weight = vw.total_vote_weight.saturating_sub(sqrt_u64(amount));
+
         msg!("Opt-out refund {} $TASTE", amount);
         Ok(())
     }
@@ -562,6 +613,12 @@ pub struct Backer {
 #[account]
 pub struct Config {
     pub governance_release_authority: Pubkey,
+}
+
+/// Per-project sum of sqrt(backer amounts) for governance early-finalize "outcome decided" math. PDA seeds = [b"vote_weight", project].
+#[account]
+pub struct ProjectVoteWeight {
+    pub total_vote_weight: u64,
 }
 
 /// Tracks material-edit terms and refund window. Created when governance applies a material edit.
@@ -618,6 +675,30 @@ pub struct UpdateConfig<'info> {
     /// ProgramData account for this program.
     /// CHECK: validated in instruction
     pub program_data_account: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct SetVoteWeight<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub project: Account<'info, Project>,
+
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = 8 + 8,
+        seeds = [b"vote_weight", project.key().as_ref()],
+        bump,
+    )]
+    pub vote_weight: Account<'info, ProjectVoteWeight>,
+
+    /// CHECK: validated in instruction
+    pub program_account: UncheckedAccount<'info>,
+    /// CHECK: validated in instruction
+    pub program_data_account: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -706,6 +787,15 @@ pub struct FundProject<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
     pub system_program: Program<'info, System>,
+
+    #[account(
+        init_if_needed,
+        payer = backer_wallet,
+        space = 8 + 8,
+        seeds = [b"vote_weight", project.key().as_ref()],
+        bump,
+    )]
+    pub vote_weight: Account<'info, ProjectVoteWeight>,
 }
 
 #[derive(Accounts)]
@@ -783,6 +873,13 @@ pub struct Refund<'info> {
     #[account(seeds = [b"project", project.key().as_ref()], bump)]
     pub escrow_authority: UncheckedAccount<'info>,
 
+    #[account(
+        mut,
+        seeds = [b"vote_weight", project.key().as_ref()],
+        bump,
+    )]
+    pub vote_weight: Account<'info, ProjectVoteWeight>,
+
     pub taste_mint: InterfaceAccount<'info, Mint>,
     pub token_program: Interface<'info, TokenInterface>,
 }
@@ -843,6 +940,13 @@ pub struct OptOutRefund<'info> {
     /// CHECK: PDA
     #[account(seeds = [b"project", project.key().as_ref()], bump)]
     pub escrow_authority: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"vote_weight", project.key().as_ref()],
+        bump,
+    )]
+    pub vote_weight: Account<'info, ProjectVoteWeight>,
 
     pub taste_mint: InterfaceAccount<'info, Mint>,
     pub token_program: Interface<'info, TokenInterface>,

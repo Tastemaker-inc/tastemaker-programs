@@ -6,6 +6,8 @@ target
 node_modules
 test-ledger
 .env
+*.log
+.validator-test.log
 *.json
 !Anchor.toml
 !package.json

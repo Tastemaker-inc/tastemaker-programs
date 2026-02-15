@@ -82,6 +82,20 @@ function getEscrowConfigPda(projectEscrowProgramId: PublicKey): PublicKey {
   )[0];
 }
 
+function getGovConfigPda(governanceProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("config")],
+    governanceProgramId
+  )[0];
+}
+
+function getVoteWeightPda(project: PublicKey, projectEscrowProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("vote_weight"), project.toBuffer()],
+    projectEscrowProgramId
+  )[0];
+}
+
 /** BPF Loader Upgradeable program ID (program data PDA derivation). */
 const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
 
@@ -294,9 +308,30 @@ describe("tastemaker-programs exhaustive", function () {
             programAccount: projectEscrowProgramId,
             programDataAccount: getProgramDataAddress(projectEscrowProgramId),
           })
-          .signers([wrongAuthority])
-          .rpc()
-      ).to.be.rejectedWith(/NotUpgradeAuthority|6011|0x177b/i);
+      .signers([wrongAuthority])
+      .rpc()
+  ).to.be.rejectedWith(/NotUpgradeAuthority|6011|0x177b/i);
+    });
+  });
+
+  describe("governance config", () => {
+    it("initializes gov config with upgrade authority (allow_early_finalize, min_voting_period_secs)", async () => {
+      const govConfigPda = getGovConfigPda(governanceProgramId);
+      try {
+        await (governance.methods as { initializeConfig: (a: boolean, b: anchor.BN) => { accounts: (acc: Record<string, unknown>) => { rpc: () => Promise<string> } } })
+          .initializeConfig(true, new anchor.BN(2))
+          .accounts({
+            authority: provider.wallet.publicKey,
+            config: govConfigPda,
+            programAccount: governanceProgramId,
+            programDataAccount: getProgramDataAddress(governanceProgramId),
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+      } catch (e: unknown) {
+        const msg = (e as Error).message ?? String(e);
+        if (!/already in use|AccountAlreadyInitialized|0x0|custom program error: 0x0/i.test(msg)) throw e;
+      }
     });
   });
 
@@ -1625,6 +1660,23 @@ describe("tastemaker-programs exhaustive", function () {
         })
         .signers([earlyFinalArtist])
         .rpc();
+
+      // Finalize checks quorum before VotingNotEnded; cast one vote so we clear quorum and hit VotingNotEnded.
+      const [votePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("vote"), proposalPda.toBuffer(), backers[3].publicKey.toBuffer()],
+        governanceProgramId
+      );
+      await governance.methods
+        .castVote(true)
+        .accounts({
+          proposal: proposalPda,
+          voter: backers[3].publicKey,
+          backer: backerPda,
+          vote: votePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([backers[3]])
+        .rpc();
       // create artist ATA
       const earlyArtistAta = getAssociatedTokenAddressSync(tasteMint, earlyFinalArtist.publicKey);
       const ataInfo = await provider.connection.getAccountInfo(earlyArtistAta);
@@ -1654,6 +1706,377 @@ describe("tastemaker-programs exhaustive", function () {
             tokenProgram: TOKEN_PROGRAM_ID,
             projectEscrowProgram: projectEscrowProgramId,
           })
+          .rpc()
+      ).to.be.rejectedWith(/VotingNotEnded|voting period has not ended|0x1773/);
+    });
+
+    it("finalize after end_ts without remaining accounts succeeds (optional Config/VoteWeight regression)", async () => {
+      const noRemArtist = Keypair.generate();
+      await airdrop(noRemArtist.publicKey);
+      const noRemProjectPda = getProjectPda(noRemArtist.publicKey, 0, projectEscrowProgramId);
+      const [noRemArtistStatePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("artist_state"), noRemArtist.publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      const [noRemEscrowAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("project"), noRemProjectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      const [noRemEscrowPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), noRemProjectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+      await projectEscrow.methods
+        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .accounts({
+          artist: noRemArtist.publicKey,
+          artistState: noRemArtistStatePda,
+          project: noRemProjectPda,
+          escrowAuthority: noRemEscrowAuthority,
+          escrow: noRemEscrowPda,
+          tasteMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([noRemArtist])
+        .rpc();
+      const platformTreasury = getPlatformTreasuryAta(tasteMint, tasteTokenProgramId);
+      const { authority: burnVaultAuthority, tokenAccount: burnVaultTokenAccount } = getBurnVaultAccounts(tasteMint, projectEscrowProgramId);
+      const [noRemBackerPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("backer"), noRemProjectPda.toBuffer(), backers[0].publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      const noRemBackerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey);
+      await projectEscrow.methods
+        // Keep this tiny so it doesn't drain balances needed by later tests.
+        .fundProject(new anchor.BN(1 * LAMPORTS_PER_TASTE))
+        .accounts({
+          backerWallet: backers[0].publicKey,
+          project: noRemProjectPda,
+          backer: noRemBackerPda,
+          backerTokenAccount: noRemBackerAta,
+          escrow: noRemEscrowPda,
+          platformTreasury,
+          burnVaultAuthority,
+          burnVaultTokenAccount,
+          tasteMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([backers[0]])
+        .rpc();
+      const noRemAttemptPda = getProposalAttemptPda(noRemProjectPda, governance.programId);
+      const noRemAttempt = await getCurrentProposalAttempt(governance, noRemAttemptPda);
+      const noRemProposalPda = getProposalPda(noRemProjectPda, 0, noRemAttempt, governance.programId);
+      const shortPeriod = new anchor.BN(2);
+      await governance.methods
+        .createProposal(noRemProjectPda, 0, "https://proof.example/no-rem", shortPeriod, new anchor.BN(noRemAttempt))
+        .accounts({
+          artist: noRemArtist.publicKey,
+          proposalAttempt: noRemAttemptPda,
+          proposal: noRemProposalPda,
+          project: noRemProjectPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([noRemArtist])
+        .rpc();
+      const [noRemVotePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("vote"), noRemProposalPda.toBuffer(), backers[0].publicKey.toBuffer()],
+        governanceProgramId
+      );
+      await governance.methods
+        .castVote(true)
+        .accounts({
+          proposal: noRemProposalPda,
+          voter: backers[0].publicKey,
+          backer: noRemBackerPda,
+          vote: noRemVotePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([backers[0]])
+        .rpc();
+      await new Promise((r) => setTimeout(r, 3500));
+      const noRemArtistAta = getAssociatedTokenAddressSync(tasteMint, noRemArtist.publicKey);
+      {
+        const ataInfo = await provider.connection.getAccountInfo(noRemArtistAta);
+        if (!ataInfo) {
+          const ataTx = new Transaction().add(
+            createAssociatedTokenAccountInstruction(noRemArtist.publicKey, noRemArtistAta, noRemArtist.publicKey, tasteMint)
+          );
+          await sendAndConfirmTransaction(provider.connection, ataTx, [noRemArtist]);
+        }
+      }
+      await governance.methods
+        .finalizeProposal()
+        .accounts({
+          proposal: noRemProposalPda,
+          project: noRemProjectPda,
+          releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
+          escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
+          escrow: noRemEscrowPda,
+          escrowAuthority: noRemEscrowAuthority,
+          artistTokenAccount: noRemArtistAta,
+          tasteMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          projectEscrowProgram: projectEscrowProgramId,
+        })
+        .rpc();
+      const proposalAfter = await governance.account.proposal.fetch(noRemProposalPda);
+      expect("passed" in proposalAfter.status || "active" in proposalAfter.status).to.be.true;
+    });
+
+    it("early finalize succeeds when config enabled, quorum met, outcome decided", async () => {
+      const earlyOkArtist = Keypair.generate();
+      await airdrop(earlyOkArtist.publicKey);
+      const earlyOkProjectPda = getProjectPda(earlyOkArtist.publicKey, 0, projectEscrowProgramId);
+      const [artistStatePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("artist_state"), earlyOkArtist.publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      const [escrowAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("project"), earlyOkProjectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      const [escrowPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), earlyOkProjectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+      await projectEscrow.methods
+        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .accounts({
+          artist: earlyOkArtist.publicKey,
+          artistState: artistStatePda,
+          project: earlyOkProjectPda,
+          escrowAuthority,
+          escrow: escrowPda,
+          tasteMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([earlyOkArtist])
+        .rpc();
+      const platformTreasury = getPlatformTreasuryAta(tasteMint, tasteTokenProgramId);
+      const { authority: burnVaultAuthority, tokenAccount: burnVaultTokenAccount } = getBurnVaultAccounts(tasteMint, projectEscrowProgramId);
+      const [backerPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("backer"), earlyOkProjectPda.toBuffer(), backers[4].publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[4].publicKey);
+      const fundAmount = 2000 * LAMPORTS_PER_TASTE;
+      await projectEscrow.methods
+        .fundProject(new anchor.BN(fundAmount))
+        .accounts({
+          backerWallet: backers[4].publicKey,
+          project: earlyOkProjectPda,
+          backer: backerPda,
+          backerTokenAccount: backerAta,
+          escrow: escrowPda,
+          platformTreasury,
+          burnVaultAuthority,
+          burnVaultTokenAccount,
+          tasteMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([backers[4]])
+        .rpc();
+      const proposalAttemptPda = getProposalAttemptPda(earlyOkProjectPda, governance.programId);
+      const attemptEarlyOk = await getCurrentProposalAttempt(governance, proposalAttemptPda);
+      const proposalPda = getProposalPda(earlyOkProjectPda, 0, attemptEarlyOk, governance.programId);
+      const longPeriod = new anchor.BN(60);
+      await governance.methods
+        .createProposal(earlyOkProjectPda, 0, "https://proof.example/earlyok", longPeriod, new anchor.BN(attemptEarlyOk))
+        .accounts({
+          artist: earlyOkArtist.publicKey,
+          proposalAttempt: proposalAttemptPda,
+          proposal: proposalPda,
+          project: earlyOkProjectPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+        ])
+        .signers([earlyOkArtist])
+        .rpc();
+      const [votePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("vote"), proposalPda.toBuffer(), backers[4].publicKey.toBuffer()],
+        governanceProgramId
+      );
+      await governance.methods
+        .castVote(true)
+        .accounts({
+          proposal: proposalPda,
+          voter: backers[4].publicKey,
+          backer: backerPda,
+          vote: votePda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([backers[4]])
+        .rpc();
+      const earlyOkArtistAta = getAssociatedTokenAddressSync(tasteMint, earlyOkArtist.publicKey);
+      {
+        const ataInfo = await provider.connection.getAccountInfo(earlyOkArtistAta);
+        if (!ataInfo) {
+          const ataTx = new Transaction().add(
+            createAssociatedTokenAccountInstruction(earlyOkArtist.publicKey, earlyOkArtistAta, earlyOkArtist.publicKey, tasteMint)
+          );
+          await sendAndConfirmTransaction(provider.connection, ataTx, [earlyOkArtist]);
+        }
+      }
+      await governance.methods
+        .finalizeProposal()
+        .accounts({
+          proposal: proposalPda,
+          project: earlyOkProjectPda,
+          releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
+          escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
+          escrow: escrowPda,
+          escrowAuthority,
+          artistTokenAccount: earlyOkArtistAta,
+          tasteMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          projectEscrowProgram: projectEscrowProgramId,
+        })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+          { pubkey: getVoteWeightPda(earlyOkProjectPda, projectEscrowProgramId), isSigner: false, isWritable: false },
+        ])
+        .rpc();
+      const proposalAfter = await governance.account.proposal.fetch(proposalPda);
+      expect("passed" in proposalAfter.status).to.be.true;
+    });
+
+    it("early finalize fails when quorum met but outcome not decided", async () => {
+      const notDecidedArtist = Keypair.generate();
+      await airdrop(notDecidedArtist.publicKey);
+      const notDecidedProjectPda = getProjectPda(notDecidedArtist.publicKey, 0, projectEscrowProgramId);
+      const [artistStatePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("artist_state"), notDecidedArtist.publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      const [escrowAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("project"), notDecidedProjectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      const [escrowPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), notDecidedProjectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+      await projectEscrow.methods
+        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .accounts({
+          artist: notDecidedArtist.publicKey,
+          artistState: artistStatePda,
+          project: notDecidedProjectPda,
+          escrowAuthority,
+          escrow: escrowPda,
+          tasteMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([notDecidedArtist])
+        .rpc();
+      const platformTreasury = getPlatformTreasuryAta(tasteMint, tasteTokenProgramId);
+      const { authority: burnVaultAuthority, tokenAccount: burnVaultTokenAccount } = getBurnVaultAccounts(tasteMint, projectEscrowProgramId);
+      // Keep this tiny so repeated tests don't run out of token balances.
+      const amt = 1 * LAMPORTS_PER_TASTE;
+      // Use reserved backers (0..4 get extra TASTE in the mint test) so we never hit token insufficient-funds here.
+      for (const backer of [backers[0], backers[1]]) {
+        const [backerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("backer"), notDecidedProjectPda.toBuffer(), backer.publicKey.toBuffer()],
+          projectEscrowProgramId
+        );
+        const backerAta = getAssociatedTokenAddressSync(tasteMint, backer.publicKey);
+        await projectEscrow.methods
+          .fundProject(new anchor.BN(amt))
+          .accounts({
+            backerWallet: backer.publicKey,
+            project: notDecidedProjectPda,
+            backer: backerPda,
+            backerTokenAccount: backerAta,
+            escrow: escrowPda,
+            platformTreasury,
+            burnVaultAuthority,
+            burnVaultTokenAccount,
+            tasteMint,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([backer])
+          .rpc();
+      }
+      const proposalAttemptPda = getProposalAttemptPda(notDecidedProjectPda, governance.programId);
+      const attemptNotDecided = await getCurrentProposalAttempt(governance, proposalAttemptPda);
+      const proposalPda = getProposalPda(notDecidedProjectPda, 0, attemptNotDecided, governance.programId);
+      const longPeriod = new anchor.BN(60);
+      await governance.methods
+        .createProposal(notDecidedProjectPda, 0, "https://proof.example/notdecided", longPeriod, new anchor.BN(attemptNotDecided))
+        .accounts({
+          artist: notDecidedArtist.publicKey,
+          proposalAttempt: proposalAttemptPda,
+          proposal: proposalPda,
+          project: notDecidedProjectPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+        ])
+        .signers([notDecidedArtist])
+        .rpc();
+      const [votePda0] = PublicKey.findProgramAddressSync(
+        [Buffer.from("vote"), proposalPda.toBuffer(), backers[0].publicKey.toBuffer()],
+        governanceProgramId
+      );
+      const [backerPda0] = PublicKey.findProgramAddressSync(
+        [Buffer.from("backer"), notDecidedProjectPda.toBuffer(), backers[0].publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      await governance.methods
+        .castVote(true)
+        .accounts({
+          proposal: proposalPda,
+          voter: backers[0].publicKey,
+          backer: backerPda0,
+          vote: votePda0,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([backers[0]])
+        .rpc();
+      const notDecidedArtistAta = getAssociatedTokenAddressSync(tasteMint, notDecidedArtist.publicKey);
+      {
+        const ataInfo = await provider.connection.getAccountInfo(notDecidedArtistAta);
+        if (!ataInfo) {
+          const ataTx = new Transaction().add(
+            createAssociatedTokenAccountInstruction(notDecidedArtist.publicKey, notDecidedArtistAta, notDecidedArtist.publicKey, tasteMint)
+          );
+          await sendAndConfirmTransaction(provider.connection, ataTx, [notDecidedArtist]);
+        }
+      }
+      await expect(
+        governance.methods
+          .finalizeProposal()
+          .accounts({
+            proposal: proposalPda,
+            project: notDecidedProjectPda,
+            releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
+            escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
+            escrow: escrowPda,
+            escrowAuthority,
+            artistTokenAccount: notDecidedArtistAta,
+            tasteMint,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            projectEscrowProgram: projectEscrowProgramId,
+          })
+          .remainingAccounts([
+            { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+            { pubkey: getVoteWeightPda(notDecidedProjectPda, projectEscrowProgramId), isSigner: false, isWritable: false },
+          ])
           .rpc()
       ).to.be.rejectedWith(/VotingNotEnded|voting period has not ended|0x1773/);
     });

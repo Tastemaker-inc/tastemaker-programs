@@ -28,6 +28,21 @@
    - program `declare_id!`
    - frontend constants/IDLs
 
+## One-time init (devnet)
+
+After deploying, run these once so devnet can use short voting periods and early finalize:
+
+1. **Governance config** (enables early finalize + short min voting period):
+   - From `tastemaker-programs/`:  
+     `SOLANA_RPC_URL=https://api.devnet.solana.com SOLANA_KEYPAIR=~/.config/solana/devnet-deploy.json npm run init-governance-config`
+   - Optional env: `MIN_VOTING_PERIOD_SECS=60` (default 60); `GOVERNANCE_PROGRAM_ID` to override program id.
+
+2. **Vote-weight backfill** (for existing projects that already have backers; new projects get vote weight on first fund):
+   - For each project PDA that existed before vote-weight was added:  
+     `npm run backfill-vote-weight-pdas -- <PROJECT_PDA>`
+   - Same env as above; optional `PROJECT_ESCROW_PROGRAM_ID` to override.
+   - Without this, early finalize will not be available for those projects (finalize still works after `end_ts`).
+
 ## Notes
 
 - The web marketplace requires `otc_market` to exist on the target network.

@@ -2,9 +2,58 @@
 //! Adapted from HYPNOSecosystem Governance.sol.
 
 use anchor_lang::prelude::*;
+use anchor_lang::Discriminator;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 declare_id!("8NhAWmnGX1dk5AUnt99MMUeZ5rjjtiRGHjrq5eeqsRAC");
+
+/// Upgradeable loader: Program variant.
+const UPGRADEABLE_LOADER_PROGRAM_STATE: u8 = 2;
+/// Upgradeable loader: ProgramData variant.
+const UPGRADEABLE_LOADER_PROGRAM_DATA_STATE: u8 = 3;
+const MIN_PROGRAM_ACCOUNT_LEN: usize = 36;
+const MIN_PROGRAMDATA_METADATA_LEN: usize = 45;
+
+fn require_upgrade_authority(
+    program_id: &Pubkey,
+    program_account_key: &Pubkey,
+    program_account_data: &[u8],
+    program_data_account_key: &Pubkey,
+    program_data_account_data: &[u8],
+    authority_key: &Pubkey,
+) -> Result<()> {
+    require!(
+        program_account_key == program_id,
+        GovError::NotUpgradeAuthority
+    );
+    require!(
+        program_account_data.len() >= MIN_PROGRAM_ACCOUNT_LEN
+            && u32::from_le_bytes(program_account_data[0..4].try_into().unwrap())
+                == UPGRADEABLE_LOADER_PROGRAM_STATE as u32,
+        GovError::NotUpgradeAuthority
+    );
+    let programdata_address =
+        Pubkey::new_from_array(program_account_data[4..36].try_into().unwrap());
+    require!(
+        program_data_account_key == &programdata_address,
+        GovError::NotUpgradeAuthority
+    );
+    require!(
+        program_data_account_data.len() >= MIN_PROGRAMDATA_METADATA_LEN
+            && u32::from_le_bytes(program_data_account_data[0..4].try_into().unwrap())
+                == UPGRADEABLE_LOADER_PROGRAM_DATA_STATE as u32,
+        GovError::NotUpgradeAuthority
+    );
+    let option_byte = program_data_account_data[12];
+    require!(option_byte == 1, GovError::NotUpgradeAuthority);
+    let upgrade_authority =
+        Pubkey::new_from_array(program_data_account_data[13..45].try_into().unwrap());
+    require!(
+        upgrade_authority == *authority_key,
+        GovError::NotUpgradeAuthority
+    );
+    Ok(())
+}
 
 pub const QUORUM_BPS: u16 = 2000; // 20%
 /// Min voting period: 24h in prod; 1s when built with `--features governance/test` for tests.
@@ -13,6 +62,83 @@ pub const MIN_VOTING_PERIOD_SECS: i64 = 1;
 #[cfg(not(feature = "test"))]
 pub const MIN_VOTING_PERIOD_SECS: i64 = 24 * 3600;
 pub const MAX_PROOF_URI_LEN: usize = 200;
+
+/// If the first remaining_account is the governance config PDA, deserialize and return it; else None.
+/// Requires account owner == this program and first 8 bytes match GovConfig Anchor discriminator.
+pub(crate) fn read_gov_config_optional<'info>(
+    program_id: &Pubkey,
+    remaining_accounts: &[AccountInfo<'info>],
+) -> Result<Option<GovConfig>> {
+    if remaining_accounts.is_empty() {
+        return Ok(None);
+    }
+    let (config_pda, _bump) = Pubkey::find_program_address(&[b"config"], program_id);
+    if remaining_accounts[0].key() != config_pda {
+        return Ok(None);
+    }
+    let acc = &remaining_accounts[0];
+    if acc.owner != program_id {
+        return Ok(None);
+    }
+    if acc.data_len() < 17 {
+        return Ok(None);
+    }
+    let data = acc.try_borrow_data()?;
+    if &data[0..8] != GovConfig::DISCRIMINATOR {
+        return Ok(None);
+    }
+    let allow_early_finalize = data[8] != 0;
+    let min_voting_period_secs = i64::from_le_bytes(data[9..17].try_into().unwrap());
+    Ok(Some(GovConfig {
+        allow_early_finalize,
+        min_voting_period_secs,
+    }))
+}
+
+/// Read optional GovConfig and optional total_vote_weight from remaining_accounts for early-finalize.
+/// remaining_accounts[0] = gov config PDA (this program), remaining_accounts[1] = project_escrow ProjectVoteWeight PDA.
+/// Each account is only parsed when owner and Anchor discriminator match; otherwise treated as not provided.
+pub(crate) fn read_early_finalize_params<'info>(
+    program_id: &Pubkey,
+    project_escrow_program_id: &Pubkey,
+    project_key: &Pubkey,
+    remaining_accounts: &[AccountInfo<'info>],
+) -> Result<(Option<GovConfig>, Option<u64>)> {
+    let mut gov_config = None;
+    let mut total_vote_weight = None;
+    let (config_pda, _) = Pubkey::find_program_address(&[b"config"], program_id);
+    let (vote_weight_pda, _) = Pubkey::find_program_address(
+        &[b"vote_weight", project_key.as_ref()],
+        project_escrow_program_id,
+    );
+    // Presence-based inclusion: accept either order, but still validate owner + discriminator.
+    for acc in remaining_accounts {
+        if gov_config.is_none()
+            && acc.key() == config_pda
+            && acc.owner == program_id
+            && acc.data_len() >= 17
+        {
+            let data = acc.try_borrow_data()?;
+            if &data[0..8] == GovConfig::DISCRIMINATOR {
+                gov_config = Some(GovConfig {
+                    allow_early_finalize: data[8] != 0,
+                    min_voting_period_secs: i64::from_le_bytes(data[9..17].try_into().unwrap()),
+                });
+            }
+        }
+        if total_vote_weight.is_none()
+            && acc.key() == vote_weight_pda
+            && acc.owner == project_escrow_program_id
+            && acc.data_len() >= 16
+        {
+            let data = acc.try_borrow_data()?;
+            if &data[0..8] == project_escrow::ProjectVoteWeight::DISCRIMINATOR {
+                total_vote_weight = Some(u64::from_le_bytes(data[8..16].try_into().unwrap()));
+            }
+        }
+    }
+    Ok((gov_config, total_vote_weight))
+}
 
 /// Babylonian method (from HYPNOSecosystem Governance.sol).
 #[inline]
@@ -33,6 +159,62 @@ pub(crate) fn sqrt_u64(x: u64) -> u64 {
 pub mod governance {
     use super::*;
 
+    /// One-time init: set allow_early_finalize and min_voting_period_secs. Only upgrade authority.
+    pub fn initialize_config(
+        ctx: Context<InitializeGovConfig>,
+        allow_early_finalize: bool,
+        min_voting_period_secs: i64,
+    ) -> Result<()> {
+        let program_account = ctx.accounts.program_account.try_borrow_data()?;
+        let program_data_account = ctx.accounts.program_data_account.try_borrow_data()?;
+        require_upgrade_authority(
+            ctx.program_id,
+            &ctx.accounts.program_account.key(),
+            &program_account,
+            &ctx.accounts.program_data_account.key(),
+            &program_data_account,
+            &ctx.accounts.authority.key(),
+        )?;
+        require!(min_voting_period_secs >= 1, GovError::VotingPeriodTooShort);
+        let config = &mut ctx.accounts.config;
+        config.allow_early_finalize = allow_early_finalize;
+        config.min_voting_period_secs = min_voting_period_secs;
+        msg!(
+            "Gov config initialized: allow_early_finalize={} min_voting_period_secs={}",
+            allow_early_finalize,
+            min_voting_period_secs
+        );
+        Ok(())
+    }
+
+    /// Update config (allow_early_finalize, min_voting_period_secs). Only upgrade authority.
+    pub fn update_config(
+        ctx: Context<UpdateGovConfig>,
+        allow_early_finalize: bool,
+        min_voting_period_secs: i64,
+    ) -> Result<()> {
+        let program_account = ctx.accounts.program_account.try_borrow_data()?;
+        let program_data_account = ctx.accounts.program_data_account.try_borrow_data()?;
+        require_upgrade_authority(
+            ctx.program_id,
+            &ctx.accounts.program_account.key(),
+            &program_account,
+            &ctx.accounts.program_data_account.key(),
+            &program_data_account,
+            &ctx.accounts.authority.key(),
+        )?;
+        require!(min_voting_period_secs >= 1, GovError::VotingPeriodTooShort);
+        let config = &mut ctx.accounts.config;
+        config.allow_early_finalize = allow_early_finalize;
+        config.min_voting_period_secs = min_voting_period_secs;
+        msg!(
+            "Gov config updated: allow_early_finalize={} min_voting_period_secs={}",
+            allow_early_finalize,
+            min_voting_period_secs
+        );
+        Ok(())
+    }
+
     pub fn create_proposal(
         ctx: Context<CreateProposal>,
         project_key: Pubkey,
@@ -41,8 +223,15 @@ pub mod governance {
         voting_period_secs: i64,
         attempt: u64,
     ) -> Result<()> {
+        let min_required = if let Some(config) =
+            read_gov_config_optional(ctx.program_id, ctx.remaining_accounts)?
+        {
+            config.min_voting_period_secs
+        } else {
+            MIN_VOTING_PERIOD_SECS
+        };
         require!(
-            voting_period_secs >= MIN_VOTING_PERIOD_SECS,
+            voting_period_secs >= min_required,
             GovError::VotingPeriodTooShort
         );
         // 0..5 = milestone release; 255 = material edit proposal
@@ -137,10 +326,6 @@ pub mod governance {
             GovError::ProposalNotActive
         );
         let clock = Clock::get()?;
-        require!(
-            clock.unix_timestamp >= proposal.end_ts,
-            GovError::VotingNotEnded
-        );
 
         let total_votes = proposal
             .votes_for
@@ -148,10 +333,36 @@ pub mod governance {
             .ok_or(GovError::Overflow)?;
         let project = &ctx.accounts.project;
         let total_escrowed = project.total_raised;
-        // sqrt(QUORUM_BPS% of total_raised) in same units as vote weights
         let quorum_raw = (total_escrowed as u128 * QUORUM_BPS as u128 / 10_000) as u64;
         let quorum_votes = sqrt_u64(quorum_raw);
         require!(total_votes >= quorum_votes, GovError::QuorumNotMet);
+
+        let (gov_config, total_vote_weight) = read_early_finalize_params(
+            ctx.program_id,
+            &ctx.accounts.project_escrow_program.key(),
+            &ctx.accounts.project.key(),
+            ctx.remaining_accounts,
+        )?;
+        let voting_ended = clock.unix_timestamp >= proposal.end_ts;
+        let outcome_decided = if let Some(tw) = total_vote_weight {
+            if tw == 0 {
+                false
+            } else {
+                let two_for = (proposal.votes_for as u128) * 2;
+                let two_against = (proposal.votes_against as u128) * 2;
+                let tw = tw as u128;
+                (two_for > tw) || (two_against >= tw)
+            }
+        } else {
+            false
+        };
+        let early_ok = gov_config
+            .as_ref()
+            .map(|c| c.allow_early_finalize)
+            .unwrap_or(false)
+            && total_vote_weight.is_some()
+            && outcome_decided;
+        require!(voting_ended || early_ok, GovError::VotingNotEnded);
 
         let passed = proposal.votes_for > proposal.votes_against;
         proposal.status = if passed {
@@ -223,10 +434,6 @@ pub mod governance {
             GovError::ProposalNotActive
         );
         let clock = Clock::get()?;
-        require!(
-            clock.unix_timestamp >= proposal.end_ts,
-            GovError::VotingNotEnded
-        );
 
         let total_votes = proposal
             .votes_for
@@ -237,6 +444,33 @@ pub mod governance {
         let quorum_raw = (total_escrowed as u128 * QUORUM_BPS as u128 / 10_000) as u64;
         let quorum_votes = sqrt_u64(quorum_raw);
         require!(total_votes >= quorum_votes, GovError::QuorumNotMet);
+
+        let (gov_config, total_vote_weight) = read_early_finalize_params(
+            ctx.program_id,
+            &ctx.accounts.project_escrow_program.key(),
+            &ctx.accounts.project.key(),
+            ctx.remaining_accounts,
+        )?;
+        let voting_ended = clock.unix_timestamp >= proposal.end_ts;
+        let outcome_decided = if let Some(tw) = total_vote_weight {
+            if tw == 0 {
+                false
+            } else {
+                let two_for = (proposal.votes_for as u128) * 2;
+                let two_against = (proposal.votes_against as u128) * 2;
+                let tw = tw as u128;
+                (two_for > tw) || (two_against >= tw)
+            }
+        } else {
+            false
+        };
+        let early_ok = gov_config
+            .as_ref()
+            .map(|c| c.allow_early_finalize)
+            .unwrap_or(false)
+            && total_vote_weight.is_some()
+            && outcome_decided;
+        require!(voting_ended || early_ok, GovError::VotingNotEnded);
 
         let passed = proposal.votes_for > proposal.votes_against;
         proposal.status = if passed {
@@ -281,6 +515,8 @@ pub mod governance {
 
 #[error_code]
 pub enum GovError {
+    #[msg("Only program upgrade authority can initialize or update config")]
+    NotUpgradeAuthority,
     #[msg("Voting period must be at least 24 hours")]
     VotingPeriodTooShort,
     #[msg("Invalid milestone index")]
@@ -337,6 +573,50 @@ pub struct Vote {
 #[account]
 pub struct ProposalAttempt {
     pub attempt: u64,
+}
+
+/// Optional governance config (seeds = [b"config"]). When set, allows early finalize and custom min voting period.
+#[account]
+pub struct GovConfig {
+    pub allow_early_finalize: bool,
+    pub min_voting_period_secs: i64,
+}
+
+#[derive(Accounts)]
+pub struct InitializeGovConfig<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + 1 + 8,
+        seeds = [b"config"],
+        bump,
+    )]
+    pub config: Account<'info, GovConfig>,
+
+    /// CHECK: validated in instruction
+    pub program_account: UncheckedAccount<'info>,
+
+    /// CHECK: validated in instruction
+    pub program_data_account: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateGovConfig<'info> {
+    pub authority: Signer<'info>,
+
+    #[account(mut, seeds = [b"config"], bump)]
+    pub config: Account<'info, GovConfig>,
+
+    /// CHECK: validated in instruction
+    pub program_account: UncheckedAccount<'info>,
+
+    /// CHECK: validated in instruction
+    pub program_data_account: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -500,5 +780,24 @@ mod tests {
         // If every backer voted with weight = sqrt(contribution), total_votes = sum(sqrt(amounts)).
         // For quorum we need total_votes >= quorum_votes.
         assert!(quorum_votes <= 150_000_000); // sanity: sqrt(20e12) ≈ 4.47e6
+    }
+
+    #[test]
+    fn test_read_gov_config_optional_empty_remaining_accounts() {
+        let program_id = crate::ID;
+        let out = read_gov_config_optional(&program_id, &[]).unwrap();
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn test_read_early_finalize_params_empty_remaining_accounts() {
+        let program_id = crate::ID;
+        let project_escrow_program_id = Pubkey::new_unique();
+        let project_key = Pubkey::new_unique();
+        let (gov, tw) =
+            read_early_finalize_params(&program_id, &project_escrow_program_id, &project_key, &[])
+                .unwrap();
+        assert!(gov.is_none());
+        assert!(tw.is_none());
     }
 }
