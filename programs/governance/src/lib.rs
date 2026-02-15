@@ -5,6 +5,11 @@ use anchor_lang::prelude::*;
 use anchor_lang::Discriminator;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
+// Anchor programs must be deployed at their declared ID.
+// We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
+#[cfg(feature = "devnet")]
+declare_id!("AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK");
+#[cfg(not(feature = "devnet"))]
 declare_id!("8NhAWmnGX1dk5AUnt99MMUeZ5rjjtiRGHjrq5eeqsRAC");
 
 /// Upgradeable loader: Program variant.

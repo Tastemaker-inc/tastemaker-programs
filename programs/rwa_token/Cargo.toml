@@ -16,6 +16,7 @@ cpi = ["no-entrypoint"]
 default = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 test = []
+devnet = ["project_escrow/devnet"]
 
 [dependencies]
 anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }

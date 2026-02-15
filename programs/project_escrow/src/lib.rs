@@ -3,6 +3,11 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Burn, Mint, TokenAccount, TokenInterface, TransferChecked};
 
+// Anchor programs must be deployed at their declared ID.
+// We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
+#[cfg(feature = "devnet")]
+declare_id!("bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym");
+#[cfg(not(feature = "devnet"))]
 declare_id!("2YH9c5BMDLNqQ7V9t3UF2x32xN8d8BukhhrJCduPQJip");
 
 /// Babylonian method for quadratic vote weight (same as governance).

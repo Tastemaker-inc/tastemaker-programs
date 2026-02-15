@@ -8,6 +8,11 @@ use mpl_token_metadata::{
 };
 use project_escrow::{Backer, Project, ProjectStatus};
 
+// Anchor programs must be deployed at their declared ID.
+// We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
+#[cfg(feature = "devnet")]
+declare_id!("GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE");
+#[cfg(not(feature = "devnet"))]
 declare_id!("4BjXzBKXQSjAmTbaYoexd4SYPHxBi5FTi1dvCCxgPkET");
 
 /// Max lengths for RWA metadata (aligned with Metaplex Token Metadata).
