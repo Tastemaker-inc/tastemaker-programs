@@ -77,8 +77,12 @@ async function getProgramDataAddress(
   return new PublicKey(programInfo.data.subarray(4, 36));
 }
 
-/** Devnet genesis hash; used to enforce cluster guard unless ALLOW_NON_DEVNET=1. */
-const DEVNET_GENESIS_HASH = "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC";
+/** Devnet genesis hash allowlist; used to enforce cluster guard unless ALLOW_NON_DEVNET=1. */
+const DEVNET_GENESIS_HASHES = new Set([
+  // Commonly observed values from Solana docs/providers over time.
+  "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC",
+]);
 
 async function main() {
   const projectPdaArg = process.argv[2];
@@ -92,7 +96,7 @@ async function main() {
   const connection = new Connection(RPC, "confirmed");
 
   const genesisHash = await connection.getGenesisHash();
-  if (genesisHash !== DEVNET_GENESIS_HASH) {
+  if (!DEVNET_GENESIS_HASHES.has(genesisHash)) {
     if (process.env.ALLOW_NON_DEVNET !== "1") {
       console.error(
         "This script is intended for devnet. Current cluster genesis hash:",
