@@ -2559,6 +2559,7 @@ describe("tastemaker-programs exhaustive", function () {
             escrowAuthority,
             artistTokenAccount: quorumArtistAta,
             tasteMint,
+            taste_mint: tasteMint,
             tokenProgram: TOKEN_PROGRAM_ID,
             projectEscrowProgram: projectEscrowProgramId,
           })
@@ -2578,6 +2579,10 @@ describe("tastemaker-programs exhaustive", function () {
       }
       expect(expectedReleased).to.equal(totalRaised);
       const artistAta = getAssociatedTokenAddressSync(tasteMint, artist.publicKey);
+      const artistAtaInfo = await provider.connection.getAccountInfo(artistAta);
+      if (!artistAtaInfo) {
+        throw new Error("Artist ATA missing; main flow (5 milestone proposals) may not have completed. Ensure prior tests passed.");
+      }
       const artistBalance = (await getAccount(provider.connection, artistAta)).amount;
       const artistBal = typeof artistBalance === "bigint" ? artistBalance : BigInt(artistBalance.toString());
       const tolerance = totalRaised / 10n;
@@ -2588,6 +2593,10 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("escrow"), projectPda.toBuffer()],
         projectEscrowProgramId
       );
+      const escrowInfo = await provider.connection.getAccountInfo(escrowPda);
+      if (!escrowInfo) {
+        throw new Error("Escrow account missing; project state may be inconsistent.");
+      }
       const escrowBalance = (await getAccount(provider.connection, escrowPda)).amount;
       const escrowAmt = typeof escrowBalance === "bigint" ? escrowBalance : BigInt(escrowBalance.toString());
       // If main flow completed, escrow is 0; if proposals never ran, escrow still has funds

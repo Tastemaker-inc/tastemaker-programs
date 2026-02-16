@@ -10,10 +10,11 @@ use project_escrow::{Backer, Project, ProjectStatus};
 
 // Anchor programs must be deployed at their declared ID.
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
+// Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
+#[cfg(not(feature = "devnet"))]
+declare_id!("AaDWsS3FuXrj9A48vAwycTbY6vE2Qa2iMMRhMPdMcoYG");
 #[cfg(feature = "devnet")]
 declare_id!("GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE");
-#[cfg(not(feature = "devnet"))]
-declare_id!("4BjXzBKXQSjAmTbaYoexd4SYPHxBi5FTi1dvCCxgPkET");
 
 /// Max lengths for RWA metadata (aligned with Metaplex Token Metadata).
 const MAX_NAME_LEN: usize = 32;

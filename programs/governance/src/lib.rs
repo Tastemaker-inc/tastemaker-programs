@@ -7,10 +7,11 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 // Anchor programs must be deployed at their declared ID.
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
+// Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
+#[cfg(not(feature = "devnet"))]
+declare_id!("FEhL9yD8zPeYqS8i2haLG4HtaU8JXhb8QdiB5BoZpVTu");
 #[cfg(feature = "devnet")]
 declare_id!("AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK");
-#[cfg(not(feature = "devnet"))]
-declare_id!("8NhAWmnGX1dk5AUnt99MMUeZ5rjjtiRGHjrq5eeqsRAC");
 
 /// Upgradeable loader: Program variant.
 const UPGRADEABLE_LOADER_PROGRAM_STATE: u8 = 2;

@@ -8,10 +8,11 @@ use anchor_spl::token_interface::{Mint, MintTo, TokenAccount, TokenInterface};
 
 // Anchor programs must be deployed at their declared ID.
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
+// Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
+#[cfg(not(feature = "devnet"))]
+declare_id!("D1a49fCWU4jHaCv4w5LykaDkRtU2khLeNGDnkX1Wt7k7");
 #[cfg(feature = "devnet")]
 declare_id!("2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo");
-#[cfg(not(feature = "devnet"))]
-declare_id!("ERm6fSLrTxCBB7FtF6EnVWFrgCi3qvBZPuhMKxJczrfk");
 
 const DECIMALS: u8 = 9;
 pub const MAX_SUPPLY: u64 = 1_000_000_000 * (10u64).pow(DECIMALS as u32);

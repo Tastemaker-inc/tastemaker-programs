@@ -5,10 +5,11 @@ use anchor_spl::token_interface::{Burn, Mint, TokenAccount, TokenInterface, Tran
 
 // Anchor programs must be deployed at their declared ID.
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
+// Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
+#[cfg(not(feature = "devnet"))]
+declare_id!("CSYjKt27tGUsb33uXbo5enQCFPEBBth9ZGoai82yUWtM");
 #[cfg(feature = "devnet")]
 declare_id!("bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym");
-#[cfg(not(feature = "devnet"))]
-declare_id!("2YH9c5BMDLNqQ7V9t3UF2x32xN8d8BukhhrJCduPQJip");
 
 /// Babylonian method for quadratic vote weight (same as governance).
 #[inline]
@@ -754,7 +755,7 @@ pub struct FundProject<'info> {
     pub backer_wallet: Signer<'info>,
 
     #[account(mut, has_one = taste_mint)]
-    pub project: Account<'info, Project>,
+    pub project: Box<Account<'info, Project>>,
 
     #[account(
         init_if_needed,
@@ -763,7 +764,7 @@ pub struct FundProject<'info> {
         seeds = [b"backer", project.key().as_ref(), backer_wallet.key().as_ref()],
         bump,
     )]
-    pub backer: Account<'info, Backer>,
+    pub backer: Box<Account<'info, Backer>>,
 
     #[account(mut)]
     pub backer_token_account: InterfaceAccount<'info, TokenAccount>,
@@ -800,7 +801,7 @@ pub struct FundProject<'info> {
         seeds = [b"vote_weight", project.key().as_ref()],
         bump,
     )]
-    pub vote_weight: Account<'info, ProjectVoteWeight>,
+    pub vote_weight: Box<Account<'info, ProjectVoteWeight>>,
 }
 
 #[derive(Accounts)]

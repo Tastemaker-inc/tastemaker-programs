@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Align program IDs with deploy keypairs (same as CI) so built IDL matches deployed programs.
+anchor keys sync
+
 VALIDATOR_LOG="${ROOT_DIR}/.validator-test.log"
 pkill -f "solana-test-validator" >/dev/null 2>&1 || true
 pkill -f "surfpool start" >/dev/null 2>&1 || true
