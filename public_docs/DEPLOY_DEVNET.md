@@ -11,7 +11,7 @@
 Deployment and upgrades require SOL on the **upgrade authority** keypair (see `Anchor.toml` `[programs.devnet]` and the keypair used with `--upgrade-authority`). If the balance is 0, `anchor deploy` or `solana program deploy` will fail with "Attempt to debit an account but found no record of a prior credit."
 
 - Check balance: `solana balance --url devnet <UPGRADE_AUTHORITY_PUBKEY>`
-- Airdrop (devnet): `solana airdrop 5 <UPGRADE_AUTHORITY_PUBKEY> --url devnet`
+- Airdrop (devnet): `solana airdrop 5 <UPGRADE_AUTHORITY_PUBKEY> --url devnet` (may be rate-limited; use a devnet faucet or wait and retry).
 - Then run the deploy flow below.
 
 ## Deploy flow
