@@ -1616,13 +1616,20 @@ describe("tastemaker-programs exhaustive", function () {
           })
           .signers([legacyBackers[i]])
           .rpc();
+        // Allow validator to commit balance before we read (CI can be slow).
+        await new Promise((r) => setTimeout(r, 400));
         // Program uses backer.amount (96% to escrow) and project.total_raised; match that for expectedShare.
         const toEscrow = (LEGACY_BACKER_AMOUNTS[i] * 96n) / 100n;
         const expectedShare = (toEscrow * LEGACY_RWA_SUPPLY) / totalRaised;
         if (expectedShare > 0n) {
-          const tokenAccount = await getAccount(provider.connection, backerAta, "confirmed", TOKEN_2022_PROGRAM_ID);
-          const amount = typeof tokenAccount.amount === "bigint" ? tokenAccount.amount : BigInt(String(tokenAccount.amount));
-          expect(amount >= expectedShare - 1n).to.be.true;
+          let tokenAccount = await getAccount(provider.connection, backerAta, "confirmed", TOKEN_2022_PROGRAM_ID);
+          let amount = typeof tokenAccount.amount === "bigint" ? tokenAccount.amount : BigInt(String(tokenAccount.amount));
+          for (let w = 0; w < 8 && amount < expectedShare - 1n; w++) {
+            await new Promise((r) => setTimeout(r, 300));
+            tokenAccount = await getAccount(provider.connection, backerAta, "confirmed", TOKEN_2022_PROGRAM_ID);
+            amount = typeof tokenAccount.amount === "bigint" ? tokenAccount.amount : BigInt(String(tokenAccount.amount));
+          }
+          expect(amount >= expectedShare - 1n, `backer ${i}: got ${amount}, expected >= ${expectedShare - 1n}`).to.be.true;
         }
       }
       });
@@ -1997,6 +2004,82 @@ describe("tastemaker-programs exhaustive", function () {
           .signers([backers[0]])
           .rpc()
       ).to.be.rejectedWith(/ProjectDeadlinePassed|deadline|6010/);
+    });
+
+    it("fund past goal fails with GoalExceeded", async () => {
+      const goalArtist = Keypair.generate();
+      await airdrop(goalArtist.publicKey);
+      const smallGoal = 1000 * LAMPORTS_PER_TASTE;
+      const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+      const projectPda = getProjectPda(goalArtist.publicKey, 0, projectEscrowProgramId);
+      const artistStatePda = getArtistStatePda(goalArtist.publicKey, projectEscrowProgramId);
+      const [escrowAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("project"), projectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      const [escrowPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), projectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      await projectEscrow.methods
+        .createProject(new anchor.BN(smallGoal), MILESTONES, deadline)
+        .accounts({
+          artist: goalArtist.publicKey,
+          artistState: artistStatePda,
+          project: projectPda,
+          escrowAuthority,
+          escrow: escrowPda,
+          tasteMint,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([goalArtist])
+        .rpc();
+      const [backerPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("backer"), projectPda.toBuffer(), backers[0].publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      const platformTreasury = getPlatformTreasuryAta(tasteMint, tasteTokenProgramId);
+      const { authority: burnVaultAuthority, tokenAccount: burnVaultTokenAccount } = getBurnVaultAccounts(tasteMint, projectEscrowProgramId);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey, false, TOKEN_2022_PROGRAM_ID);
+      await projectEscrow.methods
+        .fundProject(new anchor.BN(900 * LAMPORTS_PER_TASTE))
+        .accounts({
+          backerWallet: backers[0].publicKey,
+          project: projectPda,
+          backer: backerPda,
+          backerTokenAccount: backerAta,
+          escrow: escrowPda,
+          platformTreasury,
+          burnVaultAuthority,
+          burnVaultTokenAccount,
+          tasteMint,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([backers[0]])
+        .rpc();
+      await expect(
+        projectEscrow.methods
+          .fundProject(new anchor.BN(200 * LAMPORTS_PER_TASTE))
+          .accounts({
+            backerWallet: backers[0].publicKey,
+            project: projectPda,
+            backer: backerPda,
+            backerTokenAccount: backerAta,
+            escrow: escrowPda,
+            platformTreasury,
+            burnVaultAuthority,
+            burnVaultTokenAccount,
+            tasteMint,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([backers[0]])
+          .rpc()
+      ).to.be.rejectedWith(/GoalExceeded|goal|6017/);
     });
 
     it("non-artist cannot create proposal", async () => {

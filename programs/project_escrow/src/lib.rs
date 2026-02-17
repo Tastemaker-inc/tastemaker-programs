@@ -77,6 +77,8 @@ pub enum EscrowError {
     AlreadyOptedOut,
     #[msg("Milestones already released; opt-out only when current_milestone is 0")]
     MilestonesAlreadyReleased,
+    #[msg("Funding would exceed project goal")]
+    GoalExceeded,
     #[msg("Receipt metadata URI too long (max 200)")]
     MetadataUriTooLong,
     #[msg("Metadata account does not match expected PDA")]
@@ -271,6 +273,11 @@ pub mod project_escrow {
             .ok_or(EscrowError::Overflow)?
             .checked_sub(fee_burn)
             .ok_or(EscrowError::Overflow)?;
+
+        require!(
+            (project.total_raised as u128) + (to_escrow as u128) <= project.goal as u128,
+            EscrowError::GoalExceeded
+        );
 
         let backer = &mut ctx.accounts.backer;
         let existing = backer.amount;

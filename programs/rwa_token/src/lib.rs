@@ -388,7 +388,6 @@ pub struct InitializeRwaMint<'info> {
         payer = authority,
         mint::decimals = 6,
         mint::authority = rwa_mint_authority,
-        mint::freeze_authority = rwa_mint_authority,
         seeds = [b"rwa_mint", project.key().as_ref()],
         bump,
     )]
@@ -427,7 +426,6 @@ pub struct InitializeRwaMintByGovernance<'info> {
         payer = payer,
         mint::decimals = 6,
         mint::authority = rwa_mint_authority,
-        mint::freeze_authority = rwa_mint_authority,
         seeds = [b"rwa_mint", project.key().as_ref()],
         bump,
     )]
