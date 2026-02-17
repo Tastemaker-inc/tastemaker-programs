@@ -396,6 +396,32 @@ pub mod governance {
                 signer_seeds,
             );
             project_escrow::cpi::release_milestone(cpi_ctx)?;
+
+            // Re-read project after CPI mutated it (current_milestone, status).
+            ctx.accounts.project.reload()?;
+
+            // If project just completed (last milestone released), auto-init RWA mint (idempotent).
+            if ctx.accounts.project.current_milestone as usize >= project_escrow::MAX_MILESTONES
+                && ctx.accounts.rwa_state.lamports() == 0
+            {
+                let rwa_cpi_ctx = CpiContext::new_with_signer(
+                    ctx.accounts.rwa_token_program.to_account_info(),
+                    rwa_token::cpi::accounts::InitializeRwaMintByGovernance {
+                        payer: ctx.accounts.payer.to_account_info(),
+                        release_authority: ctx.accounts.release_authority.to_account_info(),
+                        config: ctx.accounts.escrow_config.to_account_info(),
+                        project: ctx.accounts.project.to_account_info(),
+                        rwa_state: ctx.accounts.rwa_state.to_account_info(),
+                        rwa_mint: ctx.accounts.rwa_mint.to_account_info(),
+                        rwa_mint_authority: ctx.accounts.rwa_mint_authority.to_account_info(),
+                        token_program: ctx.accounts.token_program.to_account_info(),
+                        system_program: ctx.accounts.system_program.to_account_info(),
+                    },
+                    signer_seeds,
+                );
+                const RWA_TOTAL_SUPPLY: u64 = 1_000_000 * 1_000_000;
+                rwa_token::cpi::initialize_rwa_mint_by_governance(rwa_cpi_ctx, RWA_TOTAL_SUPPLY)?;
+            }
         }
         let status_str = if passed { "Passed" } else { "Rejected" };
         msg!(
@@ -693,6 +719,10 @@ pub struct FinalizeProposal<'info> {
     #[account(mut)]
     pub project: Account<'info, project_escrow::Project>,
 
+    /// Payer for RWA state/mint init when last milestone is released (optional CPI).
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
     /// PDA that signs for governance CPI to project_escrow
     /// CHECK: validated by seeds
     #[account(mut, seeds = [b"release_authority"], bump)]
@@ -718,6 +748,24 @@ pub struct FinalizeProposal<'info> {
     pub token_program: Interface<'info, TokenInterface>,
 
     pub project_escrow_program: Program<'info, project_escrow::program::ProjectEscrow>,
+
+    /// RWA state PDA (rwa_token). Used only when finalizing last milestone to auto-init RWA mint.
+    /// CHECK: validated by rwa_token CPI; may be uninitialized (lamports == 0)
+    #[account(mut)]
+    pub rwa_state: UncheckedAccount<'info>,
+
+    /// RWA mint PDA (rwa_token). Used only when finalizing last milestone.
+    /// CHECK: validated by rwa_token CPI
+    #[account(mut)]
+    pub rwa_mint: UncheckedAccount<'info>,
+
+    /// RWA mint authority PDA (rwa_token).
+    /// CHECK: validated by rwa_token CPI
+    pub rwa_mint_authority: UncheckedAccount<'info>,
+
+    pub rwa_token_program: Program<'info, rwa_token::program::RwaToken>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]

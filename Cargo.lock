@@ -751,6 +751,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "project_escrow",
+ "rwa_token",
 ]
 
 [[package]]

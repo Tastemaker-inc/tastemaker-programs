@@ -40,6 +40,34 @@ pub mod rwa_token {
         Ok(())
     }
 
+    /// Called by governance when the last milestone is released (project becomes Completed).
+    /// Only the config's governance_release_authority may call this.
+    pub fn initialize_rwa_mint_by_governance(
+        ctx: Context<InitializeRwaMintByGovernance>,
+        total_supply: u64,
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.release_authority.key()
+                == ctx.accounts.config.governance_release_authority,
+            RwaError::NotReleaseAuthority
+        );
+        require!(
+            ctx.accounts.project.status == ProjectStatus::Completed,
+            RwaError::ProjectNotCompleted
+        );
+        let state = &mut ctx.accounts.rwa_state;
+        state.project = ctx.accounts.project.key();
+        state.authority = ctx.accounts.project.artist;
+        state.total_supply = total_supply;
+        state.minted = 0;
+        state.mint_frozen = false;
+        msg!(
+            "RWA mint initialized by governance for project {}",
+            state.project
+        );
+        Ok(())
+    }
+
     pub fn claim_rwa_tokens(ctx: Context<ClaimRwaTokens>) -> Result<()> {
         let is_frozen = ctx.accounts.rwa_state.mint_frozen;
         let total_supply = ctx.accounts.rwa_state.total_supply;
@@ -215,6 +243,8 @@ pub enum RwaError {
     InvalidMetadataAccount,
     #[msg("Invalid token metadata program")]
     InvalidTokenMetadataProgram,
+    #[msg("Signer is not the governance release authority")]
+    NotReleaseAuthority,
 }
 
 #[account]
@@ -254,6 +284,45 @@ pub struct InitializeRwaMint<'info> {
     #[account(
         init,
         payer = authority,
+        mint::decimals = 6,
+        mint::authority = rwa_mint_authority,
+        mint::freeze_authority = rwa_mint_authority,
+        seeds = [b"rwa_mint", project.key().as_ref()],
+        bump,
+    )]
+    pub rwa_mint: InterfaceAccount<'info, Mint>,
+
+    /// CHECK: PDA validated by seeds
+    #[account(seeds = [b"rwa_mint_authority", project.key().as_ref()], bump)]
+    pub rwa_mint_authority: UncheckedAccount<'info>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeRwaMintByGovernance<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    /// Must equal config.governance_release_authority (validated in handler).
+    pub release_authority: Signer<'info>,
+
+    pub config: Account<'info, project_escrow::Config>,
+    pub project: Account<'info, Project>,
+
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + 32 + 32 + 8 + 8 + 1,
+        seeds = [b"rwa_state", project.key().as_ref()],
+        bump,
+    )]
+    pub rwa_state: Account<'info, RwaState>,
+
+    #[account(
+        init,
+        payer = payer,
         mint::decimals = 6,
         mint::authority = rwa_mint_authority,
         mint::freeze_authority = rwa_mint_authority,

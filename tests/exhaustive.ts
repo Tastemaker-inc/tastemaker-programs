@@ -24,6 +24,7 @@ import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAccount,
 } from "@solana/spl-token";
@@ -89,6 +90,22 @@ function getGovConfigPda(governanceProgramId: PublicKey): PublicKey {
   )[0];
 }
 
+function getRwaPdas(projectPda: PublicKey, rwaTokenProgramId: PublicKey) {
+  const [rwaState] = PublicKey.findProgramAddressSync(
+    [Buffer.from("rwa_state"), projectPda.toBuffer()],
+    rwaTokenProgramId
+  );
+  const [rwaMint] = PublicKey.findProgramAddressSync(
+    [Buffer.from("rwa_mint"), projectPda.toBuffer()],
+    rwaTokenProgramId
+  );
+  const [rwaMintAuthority] = PublicKey.findProgramAddressSync(
+    [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
+    rwaTokenProgramId
+  );
+  return { rwaState, rwaMint, rwaMintAuthority };
+}
+
 function getVoteWeightPda(project: PublicKey, projectEscrowProgramId: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("vote_weight"), project.toBuffer()],
@@ -112,7 +129,7 @@ function getPlatformTreasuryAta(tasteMint: PublicKey, tasteTokenProgramId: Publi
     [Buffer.from("treasury")],
     tasteTokenProgramId
   );
-  return getAssociatedTokenAddressSync(tasteMint, treasuryAuth, true);
+  return getAssociatedTokenAddressSync(tasteMint, treasuryAuth, true, TOKEN_2022_PROGRAM_ID);
 }
 
 function getBurnVaultAccounts(tasteMint: PublicKey, projectEscrowProgramId: PublicKey): { authority: PublicKey; tokenAccount: PublicKey } {
@@ -120,7 +137,7 @@ function getBurnVaultAccounts(tasteMint: PublicKey, projectEscrowProgramId: Publ
     [Buffer.from("burn_vault")],
     projectEscrowProgramId
   );
-  const tokenAccount = getAssociatedTokenAddressSync(tasteMint, authority, true);
+  const tokenAccount = getAssociatedTokenAddressSync(tasteMint, authority, true, TOKEN_2022_PROGRAM_ID);
   return { authority, tokenAccount };
 }
 
@@ -139,7 +156,8 @@ function getProposalAttemptPda(project: PublicKey, governanceProgramId: PublicKe
 }
 
 function getProposalPda(project: PublicKey, milestone: number, attempt: number, governanceProgramId: PublicKey): PublicKey {
-  const attemptBuf = Buffer.from(new anchor.BN(attempt).toArrayLike(Array, "le", 8) as number[]);
+  const attemptBuf = Buffer.alloc(8);
+  attemptBuf.writeBigUInt64LE(BigInt(attempt));
   const seeds = [
     Buffer.from("proposal"),
     project.toBuffer(),
@@ -151,7 +169,7 @@ function getProposalPda(project: PublicKey, milestone: number, attempt: number, 
 
 async function getCurrentProposalAttempt(governance: Program, proposalAttemptPda: PublicKey): Promise<number> {
   try {
-    const acc = await governance.account.proposalAttempt.fetch(proposalAttemptPda);
+    const acc = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<{ attempt: { toString: () => string } }> }>).proposalAttempt.fetch(proposalAttemptPda);
     return Number(acc.attempt.toString());
   } catch {
     return 0;
@@ -318,7 +336,7 @@ describe("tastemaker-programs exhaustive", function () {
     it("initializes gov config with upgrade authority (allow_early_finalize, min_voting_period_secs)", async () => {
       const govConfigPda = getGovConfigPda(governanceProgramId);
       try {
-        await (governance.methods as { initializeConfig: (a: boolean, b: anchor.BN) => { accounts: (acc: Record<string, unknown>) => { rpc: () => Promise<string> } } })
+        await (governance.methods as unknown as { initializeConfig: (a: boolean, b: anchor.BN) => { accounts: (acc: Record<string, unknown>) => { rpc: () => Promise<string> } } })
           .initializeConfig(true, new anchor.BN(2))
           .accounts({
             authority: provider.wallet.publicKey,
@@ -348,7 +366,8 @@ describe("tastemaker-programs exhaustive", function () {
       const treasuryAta = getAssociatedTokenAddressSync(
         mintPda,
         treasuryAuthPda,
-        true
+        true,
+        TOKEN_2022_PROGRAM_ID
       );
 
       await tasteToken.methods
@@ -358,7 +377,7 @@ describe("tastemaker-programs exhaustive", function () {
           mint: mintPda,
           treasuryAuthority: treasuryAuthPda,
           treasury: treasuryAta,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -372,7 +391,8 @@ describe("tastemaker-programs exhaustive", function () {
       const treasuryAta = getAssociatedTokenAddressSync(
         tasteMint,
         treasuryAuthority,
-        true
+        true,
+        TOKEN_2022_PROGRAM_ID
       );
       const treasuryAmount = 100_000_000n * BigInt(LAMPORTS_PER_TASTE);
       await tasteToken.methods
@@ -381,7 +401,7 @@ describe("tastemaker-programs exhaustive", function () {
           mintAuthority: provider.wallet.publicKey,
           mint: tasteMint,
           treasury: treasuryAta,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .rpc();
 
@@ -394,7 +414,7 @@ describe("tastemaker-programs exhaustive", function () {
       for (let i = 0; i < backers.length; i++) {
         const amount = BigInt(amountsRaw[i]) * BigInt(LAMPORTS_PER_TASTE);
         backerAmounts.push(amount);
-        const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[i].publicKey);
+        const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[i].publicKey, false, TOKEN_2022_PROGRAM_ID);
         const info = await provider.connection.getAccountInfo(backerAta);
         if (!info) {
           const tx = new Transaction().add(
@@ -402,7 +422,8 @@ describe("tastemaker-programs exhaustive", function () {
               backers[i].publicKey,
               backerAta,
               backers[i].publicKey,
-              tasteMint
+              tasteMint,
+              TOKEN_2022_PROGRAM_ID
             )
           );
           await sendAndConfirmTransaction(provider.connection, tx, [backers[i]]);
@@ -413,27 +434,27 @@ describe("tastemaker-programs exhaustive", function () {
             mintAuthority: provider.wallet.publicKey,
             mint: tasteMint,
             recipient: backerAta,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .rpc();
       }
       // extra TASTE for negative tests
       const negativeTestReserve = 10_000 * LAMPORTS_PER_TASTE;
       for (let i = 0; i < 5; i++) {
-        const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[i].publicKey);
+        const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[i].publicKey, false, TOKEN_2022_PROGRAM_ID);
         await tasteToken.methods
           .mintTo(new anchor.BN(negativeTestReserve.toString()))
           .accounts({
             mintAuthority: provider.wallet.publicKey,
             mint: tasteMint,
             recipient: backerAta,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .rpc();
       }
       // fund cancel-proposal backer
       const cancelProposalAmount = 50_000 * LAMPORTS_PER_TASTE;
-      const cancelProposalAta = getAssociatedTokenAddressSync(tasteMint, cancelProposalBacker.publicKey);
+      const cancelProposalAta = getAssociatedTokenAddressSync(tasteMint, cancelProposalBacker.publicKey, false, TOKEN_2022_PROGRAM_ID);
       const cancelProposalAtaInfo = await provider.connection.getAccountInfo(cancelProposalAta);
       if (!cancelProposalAtaInfo) {
         const tx = new Transaction().add(
@@ -441,7 +462,8 @@ describe("tastemaker-programs exhaustive", function () {
             cancelProposalBacker.publicKey,
             cancelProposalAta,
             cancelProposalBacker.publicKey,
-            tasteMint
+            tasteMint,
+            TOKEN_2022_PROGRAM_ID
           )
         );
         await sendAndConfirmTransaction(provider.connection, tx, [cancelProposalBacker]);
@@ -452,12 +474,12 @@ describe("tastemaker-programs exhaustive", function () {
           mintAuthority: provider.wallet.publicKey,
           mint: tasteMint,
           recipient: cancelProposalAta,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .rpc();
       // fund cancelBacker before freeze
       const cancelBackerAmount = 100_000 * LAMPORTS_PER_TASTE;
-      const cancelBackerAta = getAssociatedTokenAddressSync(tasteMint, cancelBacker.publicKey);
+      const cancelBackerAta = getAssociatedTokenAddressSync(tasteMint, cancelBacker.publicKey, false, TOKEN_2022_PROGRAM_ID);
       const cancelBackerAtaInfo = await provider.connection.getAccountInfo(cancelBackerAta);
       if (!cancelBackerAtaInfo) {
         const tx = new Transaction().add(
@@ -465,7 +487,8 @@ describe("tastemaker-programs exhaustive", function () {
             cancelBacker.publicKey,
             cancelBackerAta,
             cancelBacker.publicKey,
-            tasteMint
+            tasteMint,
+            TOKEN_2022_PROGRAM_ID
           )
         );
         await sendAndConfirmTransaction(provider.connection, tx, [cancelBacker]);
@@ -476,7 +499,7 @@ describe("tastemaker-programs exhaustive", function () {
           mintAuthority: provider.wallet.publicKey,
           mint: tasteMint,
           recipient: cancelBackerAta,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .rpc();
     });
@@ -484,14 +507,14 @@ describe("tastemaker-programs exhaustive", function () {
     it("burn: burns a small amount from one backer", async () => {
       const backer = backers[0];
       const burnAmount = new anchor.BN(1000); // 1000 raw units (0.000001 TASTE)
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, backer.publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backer.publicKey, false, TOKEN_2022_PROGRAM_ID);
       await tasteToken.methods
         .burn(burnAmount)
         .accounts({
           owner: backer.publicKey,
           source: backerAta,
           mint: tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .signers([backer])
         .rpc();
@@ -504,10 +527,10 @@ describe("tastemaker-programs exhaustive", function () {
         .accounts({
           mintAuthority: provider.wallet.publicKey,
           mint: tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .rpc();
-      const treasuryAta = getAssociatedTokenAddressSync(tasteMint, treasuryAuthority, true);
+      const treasuryAta = getAssociatedTokenAddressSync(tasteMint, treasuryAuthority, true, TOKEN_2022_PROGRAM_ID);
       await expect(
         tasteToken.methods
           .mintTo(new anchor.BN(1000))
@@ -515,7 +538,7 @@ describe("tastemaker-programs exhaustive", function () {
             mintAuthority: provider.wallet.publicKey,
             mint: tasteMint,
             recipient: treasuryAta,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .rpc()
       ).to.be.rejectedWith(/InvalidMintAuthority|invalid mint authority|0x1771/);
@@ -551,13 +574,13 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([artist])
         .rpc();
 
-      const project = await projectEscrow.account.project.fetch(projectPda);
+      const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(projectPda) as { artist: PublicKey; goal: { toString(): string } };
       expect(project.artist.equals(artist.publicKey)).to.be.true;
       expect(BigInt(project.goal.toString())).to.equal(GOAL);
     });
@@ -570,7 +593,7 @@ describe("tastemaker-programs exhaustive", function () {
           [Buffer.from("backer"), projectPda.toBuffer(), backers[i].publicKey.toBuffer()],
           projectEscrowProgramId
         );
-        const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[i].publicKey);
+        const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[i].publicKey, false, TOKEN_2022_PROGRAM_ID);
         const amount = backerAmounts[i];
         await projectEscrow.methods
           .fundProject(new anchor.BN(amount.toString()))
@@ -584,14 +607,14 @@ describe("tastemaker-programs exhaustive", function () {
             burnVaultAuthority,
             burnVaultTokenAccount,
             tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
           .signers([backers[i]])
           .rpc();
       }
-      const project = await projectEscrow.account.project.fetch(projectPda);
+      const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(projectPda) as { totalRaised: { toString(): string }; backerCount: number };
       // 96% to escrow (4% fee: 2% treasury, 2% burn)
       const totalFunded = backerAmounts.reduce((a, b) => a + b, 0n);
       const expectedEscrow = (totalFunded * 96n) / 100n;
@@ -600,7 +623,7 @@ describe("tastemaker-programs exhaustive", function () {
     });
 
     it("runs 5 milestone proposals with many voters and quadratic weights", async () => {
-      const artistAta = getAssociatedTokenAddressSync(tasteMint, artist.publicKey);
+      const artistAta = getAssociatedTokenAddressSync(tasteMint, artist.publicKey, false, TOKEN_2022_PROGRAM_ID);
       let artistAtaInfo = await provider.connection.getAccountInfo(artistAta);
       if (!artistAtaInfo) {
         const tx = new Transaction().add(
@@ -608,7 +631,8 @@ describe("tastemaker-programs exhaustive", function () {
             artist.publicKey,
             artistAta,
             artist.publicKey,
-            tasteMint
+            tasteMint,
+            TOKEN_2022_PROGRAM_ID
           )
         );
         await sendAndConfirmTransaction(provider.connection, tx, [artist]);
@@ -680,7 +704,7 @@ describe("tastemaker-programs exhaustive", function () {
           else votesAgainst += weight;
         }
 
-        const proposalBefore = await governance.account.proposal.fetch(proposalPda);
+        const proposalBefore = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(proposalPda) as { votesFor: { toString(): string }; votesAgainst: { toString(): string } };
         expect(BigInt(proposalBefore.votesFor.toString())).to.equal(votesFor);
         expect(BigInt(proposalBefore.votesAgainst.toString())).to.equal(votesAgainst);
 
@@ -695,29 +719,36 @@ describe("tastemaker-programs exhaustive", function () {
           projectEscrowProgramId
         );
 
+        const { rwaState, rwaMint, rwaMintAuthority } = getRwaPdas(projectPda, rwaTokenProgramId);
         await governance.methods
           .finalizeProposal()
           .accounts({
             proposal: proposalPda,
             project: projectPda,
+            payer: provider.wallet.publicKey,
             releaseAuthority,
             escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
             escrow: escrowPda,
             escrowAuthority,
             artistTokenAccount: artistAta,
             tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             projectEscrowProgram: projectEscrowProgramId,
+            rwaState,
+            rwaMint,
+            rwaMintAuthority,
+            rwaTokenProgram: rwaTokenProgramId,
+            systemProgram: SystemProgram.programId,
           })
           .rpc();
 
-        const proposalAfter = await governance.account.proposal.fetch(proposalPda);
+        const proposalAfter = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(proposalPda) as { status: Record<string, unknown> };
         expect(
           "passed" in proposalAfter.status || "active" in proposalAfter.status
         ).to.be.true;
       }
 
-      const projectAfter = await projectEscrow.account.project.fetch(projectPda);
+      const projectAfter = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(projectPda) as { currentMilestone: number; status: Record<string, unknown> };
       expect(projectAfter.currentMilestone).to.equal(5);
       expect("completed" in projectAfter.status).to.be.true;
     });
@@ -741,27 +772,52 @@ describe("tastemaker-programs exhaustive", function () {
       );
     });
 
-    it("artist initializes RWA mint for project", async () => {
-      await rwaToken.methods
-        .initializeRwaMint(new anchor.BN(RWA_TOTAL_SUPPLY.toString()))
-        .accounts({
-          authority: artist.publicKey,
-          project: projectPda,
-          rwaState: rwaStatePda,
-          rwaMint: rwaMintPda,
-          rwaMintAuthority: PublicKey.findProgramAddressSync(
-            [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
-            rwaTokenProgramId
-          )[0],
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([artist])
-        .rpc();
-
-      const state = await rwaToken.account.rwaState.fetch(rwaStatePda);
+    it("artist initializes RWA mint for project (or already inited by governance)", async () => {
+      const rwaStateInfo = await provider.connection.getAccountInfo(rwaStatePda);
+      if (!rwaStateInfo || rwaStateInfo.lamports === 0) {
+        await rwaToken.methods
+          .initializeRwaMint(new anchor.BN(RWA_TOTAL_SUPPLY.toString()))
+          .accounts({
+            authority: artist.publicKey,
+            project: projectPda,
+            rwaState: rwaStatePda,
+            rwaMint: rwaMintPda,
+            rwaMintAuthority: PublicKey.findProgramAddressSync(
+              [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
+              rwaTokenProgramId
+            )[0],
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([artist])
+          .rpc();
+      }
+      const state = await (rwaToken.account as Record<string, { fetch: (p: PublicKey) => Promise<{ minted: { toString: () => string }; mintFrozen?: boolean; totalSupply?: { toString: () => string }; authority?: PublicKey }> }>).rwaState.fetch(rwaStatePda) as { totalSupply: { toString(): string }; authority: PublicKey };
       expect(BigInt(state.totalSupply.toString())).to.equal(RWA_TOTAL_SUPPLY);
       expect(state.authority.equals(artist.publicKey)).to.be.true;
+    });
+
+    it("initialize_rwa_mint_by_governance rejects when signer is not release authority", async () => {
+      await expect(
+        rwaToken.methods
+          .initializeRwaMintByGovernance(new anchor.BN(Number(RWA_TOTAL_SUPPLY)))
+          .accounts({
+            payer: artist.publicKey,
+            releaseAuthority: artist.publicKey,
+            config: getEscrowConfigPda(projectEscrowProgramId),
+            project: projectPda,
+            rwaState: rwaStatePda,
+            rwaMint: rwaMintPda,
+            rwaMintAuthority: PublicKey.findProgramAddressSync(
+              [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
+              rwaTokenProgramId
+            )[0],
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([artist])
+          .rpc()
+      ).to.be.rejectedWith(/NotReleaseAuthority|not release authority|0x|Constraint/i);
     });
 
     const MPL_TOKEN_METADATA_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
@@ -786,7 +842,7 @@ describe("tastemaker-programs exhaustive", function () {
         MPL_TOKEN_METADATA_ID
       );
       await expect(
-        (rwaToken.methods as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata(longName, "S", "https://x.com")
+        (rwaToken.methods as unknown as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata(longName, "S", "https://x.com")
           .accounts({
             authority: artist.publicKey,
             rwaState: rwaStatePda,
@@ -800,7 +856,7 @@ describe("tastemaker-programs exhaustive", function () {
             tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
             systemProgram: SystemProgram.programId,
             sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([artist])
           .rpc()
@@ -821,7 +877,7 @@ describe("tastemaker-programs exhaustive", function () {
         MPL_TOKEN_METADATA_ID
       );
       await expect(
-        (rwaToken.methods as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata("Bad", "B", "https://x.com")
+        (rwaToken.methods as unknown as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata("Bad", "B", "https://x.com")
           .accounts({
             authority: backers[0].publicKey,
             rwaState: rwaStatePda,
@@ -835,7 +891,7 @@ describe("tastemaker-programs exhaustive", function () {
             tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
             systemProgram: SystemProgram.programId,
             sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([backers[0]])
           .rpc()
@@ -859,7 +915,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("metadata"), MPL_TOKEN_METADATA_ID.toBuffer(), rwaMintPda.toBuffer()],
         MPL_TOKEN_METADATA_ID
       );
-      await (rwaToken.methods as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata("Test RWA", "TRWA", "https://example.com/metadata.json")
+      await (rwaToken.methods as unknown as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata("Test RWA", "TRWA", "https://example.com/metadata.json")
         .accounts({
           authority: artist.publicKey,
           rwaState: rwaStatePda,
@@ -873,7 +929,7 @@ describe("tastemaker-programs exhaustive", function () {
           tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
           systemProgram: SystemProgram.programId,
           sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .signers([artist])
         .rpc();
@@ -897,7 +953,7 @@ describe("tastemaker-programs exhaustive", function () {
         MPL_TOKEN_METADATA_ID
       );
       await expect(
-        (rwaToken.methods as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata("Again", "A", "https://again.com")
+        (rwaToken.methods as unknown as { initializeRwaMetadata: (n: string, s: string, u: string) => { accounts: (a: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMetadata("Again", "A", "https://again.com")
           .accounts({
             authority: artist.publicKey,
             rwaState: rwaStatePda,
@@ -911,7 +967,7 @@ describe("tastemaker-programs exhaustive", function () {
             tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
             systemProgram: SystemProgram.programId,
             sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([artist])
           .rpc()
@@ -919,7 +975,7 @@ describe("tastemaker-programs exhaustive", function () {
     });
 
     it("all backers claim RWA tokens", async () => {
-      const project = await projectEscrow.account.project.fetch(projectPda);
+      const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(projectPda) as { totalRaised: { toString(): string } };
       const totalRaised = BigInt(project.totalRaised.toString());
 
       for (let i = 0; i < backers.length; i++) {
@@ -933,7 +989,9 @@ describe("tastemaker-programs exhaustive", function () {
         );
         const backerAta = getAssociatedTokenAddressSync(
           rwaMintPda,
-          backers[i].publicKey
+          backers[i].publicKey,
+          false,
+          TOKEN_2022_PROGRAM_ID
         );
 
         await rwaToken.methods
@@ -950,7 +1008,7 @@ describe("tastemaker-programs exhaustive", function () {
             )[0],
             claimRecord: claimRecordPda,
             backerTokenAccount: backerAta,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
@@ -961,7 +1019,7 @@ describe("tastemaker-programs exhaustive", function () {
         if (expectedShare > 0n) {
           try {
             const tokenAccount = await getAccount(provider.connection, backerAta);
-            const amount = typeof tokenAccount.amount === "bigint" ? tokenAccount.amount : BigInt(tokenAccount.amount.toString());
+            const amount = typeof tokenAccount.amount === "bigint" ? tokenAccount.amount : BigInt(String(tokenAccount.amount));
             expect(amount >= expectedShare - 1n).to.be.true;
           } catch (e) {
             // Account may not exist yet or rounding; verify claim record instead
@@ -969,13 +1027,13 @@ describe("tastemaker-programs exhaustive", function () {
               [Buffer.from("claim"), projectPda.toBuffer(), backers[i].publicKey.toBuffer()],
               rwaTokenProgramId
             );
-            const record = await rwaToken.account.claimRecord.fetch(claimRecordPda);
+            const record = await (rwaToken.account as Record<string, { fetch: (p: PublicKey) => Promise<{ claimed: boolean }> }>).claimRecord.fetch(claimRecordPda);
             expect((record as { claimed: boolean }).claimed).to.be.true;
           }
         }
       }
 
-      const state = await rwaToken.account.rwaState.fetch(rwaStatePda);
+      const state = await (rwaToken.account as Record<string, { fetch: (p: PublicKey) => Promise<{ minted: { toString: () => string }; mintFrozen?: boolean; totalSupply?: { toString: () => string }; authority?: PublicKey }> }>).rwaState.fetch(rwaStatePda);
       const minted = BigInt(state.minted.toString());
       expect(minted >= RWA_TOTAL_SUPPLY - 100n).to.be.true;
       expect(minted <= RWA_TOTAL_SUPPLY + 100n).to.be.true;
@@ -991,7 +1049,7 @@ describe("tastemaker-programs exhaustive", function () {
         .signers([artist])
         .rpc();
 
-      const state = await rwaToken.account.rwaState.fetch(rwaStatePda);
+      const state = await (rwaToken.account as Record<string, { fetch: (p: PublicKey) => Promise<{ minted: { toString: () => string }; mintFrozen?: boolean; totalSupply?: { toString: () => string }; authority?: PublicKey }> }>).rwaState.fetch(rwaStatePda);
       expect((state as { mintFrozen: boolean }).mintFrozen).to.be.true;
     });
   });
@@ -1031,7 +1089,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([cancelProposalArtist])
@@ -1039,8 +1097,23 @@ describe("tastemaker-programs exhaustive", function () {
 
       const backerAta = getAssociatedTokenAddressSync(
         tasteMint,
-        cancelProposalBacker.publicKey
+        cancelProposalBacker.publicKey,
+        false,
+        TOKEN_2022_PROGRAM_ID
       );
+      const backerAtaInfo = await provider.connection.getAccountInfo(backerAta);
+      if (!backerAtaInfo) {
+        const tx = new Transaction().add(
+          createAssociatedTokenAccountInstruction(
+            cancelProposalBacker.publicKey,
+            backerAta,
+            cancelProposalBacker.publicKey,
+            tasteMint,
+            TOKEN_2022_PROGRAM_ID
+          )
+        );
+        await sendAndConfirmTransaction(provider.connection, tx, [cancelProposalBacker]);
+      }
       const platformTreasury = getPlatformTreasuryAta(tasteMint, tasteTokenProgramId);
       const { authority: burnVaultAuthority, tokenAccount: burnVaultTokenAccount } = getBurnVaultAccounts(tasteMint, projectEscrowProgramId);
       const fundAmt = new anchor.BN(50_000 * LAMPORTS_PER_TASTE);
@@ -1060,7 +1133,7 @@ describe("tastemaker-programs exhaustive", function () {
           burnVaultAuthority,
           burnVaultTokenAccount,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -1097,7 +1170,7 @@ describe("tastemaker-programs exhaustive", function () {
         .signers([cancelProposalArtist])
         .rpc();
 
-      const after = await governance.account.proposal.fetch(cancelProposalPda);
+      const after = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(cancelProposalPda) as { status: Record<string, unknown> };
       expect("cancelled" in after.status).to.be.true;
     });
   });
@@ -1137,13 +1210,13 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: cancelEscrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([cancelArtist])
         .rpc();
 
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, cancelBacker.publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, cancelBacker.publicKey, false, TOKEN_2022_PROGRAM_ID);
       const fundAmt = new anchor.BN(100_000 * LAMPORTS_PER_TASTE);
 
       const platformTreasury = getPlatformTreasuryAta(tasteMint, tasteTokenProgramId);
@@ -1164,7 +1237,7 @@ describe("tastemaker-programs exhaustive", function () {
           burnVaultAuthority,
           burnVaultTokenAccount,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -1182,7 +1255,7 @@ describe("tastemaker-programs exhaustive", function () {
         .signers([cancelArtist])
         .rpc();
 
-      const project = await projectEscrow.account.project.fetch(cancelProjectPda);
+      const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(cancelProjectPda) as { status: Record<string, unknown> };
       expect("cancelled" in project.status).to.be.true;
     });
 
@@ -1195,7 +1268,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("project"), cancelProjectPda.toBuffer()],
         projectEscrowProgramId
       );
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, cancelBacker.publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, cancelBacker.publicKey, false, TOKEN_2022_PROGRAM_ID);
 
       await projectEscrow.methods
         .refund()
@@ -1207,7 +1280,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrow: cancelEscrowPda,
           escrowAuthority,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .signers([cancelBacker])
         .rpc();
@@ -1230,7 +1303,7 @@ describe("tastemaker-programs exhaustive", function () {
           governanceProgramId
         );
         try {
-          const vote = await governance.account.vote.fetch(votePda);
+          const vote = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).vote.fetch(votePda) as { weight: { toString(): string } };
           // vote weight = sqrt(post-fee amount)
           const onChainAmount = backerAmounts[idx] * 96n / 100n;
           const expectedWeight = sqrtU64(onChainAmount);
@@ -1246,7 +1319,7 @@ describe("tastemaker-programs exhaustive", function () {
 
   describe("negative and edge cases", () => {
     it("unauthorized mint: non-authority cannot mint TASTE", async () => {
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey, false, TOKEN_2022_PROGRAM_ID);
       await expect(
         tasteToken.methods
           .mintTo(new anchor.BN(1000))
@@ -1254,7 +1327,7 @@ describe("tastemaker-programs exhaustive", function () {
             mintAuthority: backers[0].publicKey,
             mint: tasteMint,
             recipient: backerAta,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([backers[0]])
           .rpc()
@@ -1286,7 +1359,7 @@ describe("tastemaker-programs exhaustive", function () {
             escrowAuthority,
             escrow: escrowPda,
             tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
           .signers([badArtist])
@@ -1317,7 +1390,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([pastArtist])
@@ -1328,7 +1401,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const platformTreasury = getPlatformTreasuryAta(tasteMint, tasteTokenProgramId);
       const { authority: burnVaultAuthority, tokenAccount: burnVaultTokenAccount } = getBurnVaultAccounts(tasteMint, projectEscrowProgramId);
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey, false, TOKEN_2022_PROGRAM_ID);
       await expect(
         projectEscrow.methods
           .fundProject(new anchor.BN(1000 * LAMPORTS_PER_TASTE))
@@ -1342,7 +1415,7 @@ describe("tastemaker-programs exhaustive", function () {
             burnVaultAuthority,
             burnVaultTokenAccount,
             tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
@@ -1390,7 +1463,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("project"), projectPda.toBuffer()],
         projectEscrowProgramId
       );
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey, false, TOKEN_2022_PROGRAM_ID);
       await expect(
         projectEscrow.methods
           .refund()
@@ -1402,7 +1475,7 @@ describe("tastemaker-programs exhaustive", function () {
             escrow: escrowPda,
             escrowAuthority,
             tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .signers([backers[0]])
           .rpc()
@@ -1459,7 +1532,9 @@ describe("tastemaker-programs exhaustive", function () {
           [Buffer.from("rwa_mint"), projectPda.toBuffer()],
           rwaTokenProgramId
         )[0],
-        backer.publicKey
+        backer.publicKey,
+        false,
+        TOKEN_2022_PROGRAM_ID
       );
       let failed = false;
       let errMsg = "";
@@ -1475,7 +1550,7 @@ describe("tastemaker-programs exhaustive", function () {
             rwaMintAuthority,
             claimRecord: claimPda,
             backerTokenAccount,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
@@ -1524,7 +1599,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([voteExpiredArtist])
@@ -1535,7 +1610,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("backer"), expiredProjectPda.toBuffer(), backers[0].publicKey.toBuffer()],
         projectEscrowProgramId
       );
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey, false, TOKEN_2022_PROGRAM_ID);
       await projectEscrow.methods
         .fundProject(new anchor.BN(1000 * LAMPORTS_PER_TASTE))
         .accounts({
@@ -1548,7 +1623,7 @@ describe("tastemaker-programs exhaustive", function () {
           burnVaultAuthority,
           burnVaultTokenAccount,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -1615,7 +1690,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([earlyFinalArtist])
@@ -1626,7 +1701,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("backer"), earlyProjectPda.toBuffer(), backers[3].publicKey.toBuffer()],
         projectEscrowProgramId
       );
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[3].publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[3].publicKey, false, TOKEN_2022_PROGRAM_ID);
       await projectEscrow.methods
         .fundProject(new anchor.BN(2000 * LAMPORTS_PER_TASTE))
         .accounts({
@@ -1639,7 +1714,7 @@ describe("tastemaker-programs exhaustive", function () {
           burnVaultAuthority,
           burnVaultTokenAccount,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -1678,7 +1753,7 @@ describe("tastemaker-programs exhaustive", function () {
         .signers([backers[3]])
         .rpc();
       // create artist ATA
-      const earlyArtistAta = getAssociatedTokenAddressSync(tasteMint, earlyFinalArtist.publicKey);
+      const earlyArtistAta = getAssociatedTokenAddressSync(tasteMint, earlyFinalArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
       const ataInfo = await provider.connection.getAccountInfo(earlyArtistAta);
       if (!ataInfo) {
         const ataTx = new Transaction().add(
@@ -1686,25 +1761,33 @@ describe("tastemaker-programs exhaustive", function () {
             earlyFinalArtist.publicKey,
             earlyArtistAta,
             earlyFinalArtist.publicKey,
-            tasteMint
+            tasteMint,
+            TOKEN_2022_PROGRAM_ID
           )
         );
         await sendAndConfirmTransaction(provider.connection, ataTx, [earlyFinalArtist]);
       }
+      const earlyRwa = getRwaPdas(earlyProjectPda, rwaTokenProgramId);
       await expect(
         governance.methods
           .finalizeProposal()
           .accounts({
             proposal: proposalPda,
             project: earlyProjectPda,
+            payer: provider.wallet.publicKey,
             releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
             escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
             escrow: escrowPda,
             escrowAuthority,
             artistTokenAccount: earlyArtistAta,
             tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             projectEscrowProgram: projectEscrowProgramId,
+            rwaState: earlyRwa.rwaState,
+            rwaMint: earlyRwa.rwaMint,
+            rwaMintAuthority: earlyRwa.rwaMintAuthority,
+            rwaTokenProgram: rwaTokenProgramId,
+            systemProgram: SystemProgram.programId,
           })
           .rpc()
       ).to.be.rejectedWith(/VotingNotEnded|voting period has not ended|0x1773/);
@@ -1736,7 +1819,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority: noRemEscrowAuthority,
           escrow: noRemEscrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([noRemArtist])
@@ -1747,7 +1830,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("backer"), noRemProjectPda.toBuffer(), backers[0].publicKey.toBuffer()],
         projectEscrowProgramId
       );
-      const noRemBackerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey);
+      const noRemBackerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey, false, TOKEN_2022_PROGRAM_ID);
       await projectEscrow.methods
         // Keep this tiny so it doesn't drain balances needed by later tests.
         .fundProject(new anchor.BN(1 * LAMPORTS_PER_TASTE))
@@ -1761,7 +1844,7 @@ describe("tastemaker-programs exhaustive", function () {
           burnVaultAuthority,
           burnVaultTokenAccount,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -1798,32 +1881,39 @@ describe("tastemaker-programs exhaustive", function () {
         .signers([backers[0]])
         .rpc();
       await new Promise((r) => setTimeout(r, 3500));
-      const noRemArtistAta = getAssociatedTokenAddressSync(tasteMint, noRemArtist.publicKey);
+      const noRemArtistAta = getAssociatedTokenAddressSync(tasteMint, noRemArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
       {
         const ataInfo = await provider.connection.getAccountInfo(noRemArtistAta);
         if (!ataInfo) {
           const ataTx = new Transaction().add(
-            createAssociatedTokenAccountInstruction(noRemArtist.publicKey, noRemArtistAta, noRemArtist.publicKey, tasteMint)
+            createAssociatedTokenAccountInstruction(noRemArtist.publicKey, noRemArtistAta, noRemArtist.publicKey, tasteMint, TOKEN_2022_PROGRAM_ID)
           );
           await sendAndConfirmTransaction(provider.connection, ataTx, [noRemArtist]);
         }
       }
+      const noRemRwa = getRwaPdas(noRemProjectPda, rwaTokenProgramId);
       await governance.methods
         .finalizeProposal()
         .accounts({
           proposal: noRemProposalPda,
           project: noRemProjectPda,
+          payer: provider.wallet.publicKey,
           releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
           escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
           escrow: noRemEscrowPda,
           escrowAuthority: noRemEscrowAuthority,
           artistTokenAccount: noRemArtistAta,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           projectEscrowProgram: projectEscrowProgramId,
+          rwaState: noRemRwa.rwaState,
+          rwaMint: noRemRwa.rwaMint,
+          rwaMintAuthority: noRemRwa.rwaMintAuthority,
+          rwaTokenProgram: rwaTokenProgramId,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
-      const proposalAfter = await governance.account.proposal.fetch(noRemProposalPda);
+      const proposalAfter = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(noRemProposalPda) as { status: Record<string, unknown> };
       expect("passed" in proposalAfter.status || "active" in proposalAfter.status).to.be.true;
     });
 
@@ -1853,7 +1943,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([earlyOkArtist])
@@ -1864,7 +1954,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("backer"), earlyOkProjectPda.toBuffer(), backers[4].publicKey.toBuffer()],
         projectEscrowProgramId
       );
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[4].publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[4].publicKey, false, TOKEN_2022_PROGRAM_ID);
       const fundAmount = 2000 * LAMPORTS_PER_TASTE;
       await projectEscrow.methods
         .fundProject(new anchor.BN(fundAmount))
@@ -1878,7 +1968,7 @@ describe("tastemaker-programs exhaustive", function () {
           burnVaultAuthority,
           burnVaultTokenAccount,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -1917,36 +2007,43 @@ describe("tastemaker-programs exhaustive", function () {
         })
         .signers([backers[4]])
         .rpc();
-      const earlyOkArtistAta = getAssociatedTokenAddressSync(tasteMint, earlyOkArtist.publicKey);
+      const earlyOkArtistAta = getAssociatedTokenAddressSync(tasteMint, earlyOkArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
       {
         const ataInfo = await provider.connection.getAccountInfo(earlyOkArtistAta);
         if (!ataInfo) {
           const ataTx = new Transaction().add(
-            createAssociatedTokenAccountInstruction(earlyOkArtist.publicKey, earlyOkArtistAta, earlyOkArtist.publicKey, tasteMint)
+            createAssociatedTokenAccountInstruction(earlyOkArtist.publicKey, earlyOkArtistAta, earlyOkArtist.publicKey, tasteMint, TOKEN_2022_PROGRAM_ID)
           );
           await sendAndConfirmTransaction(provider.connection, ataTx, [earlyOkArtist]);
         }
       }
+      const earlyOkRwa = getRwaPdas(earlyOkProjectPda, rwaTokenProgramId);
       await governance.methods
         .finalizeProposal()
         .accounts({
           proposal: proposalPda,
           project: earlyOkProjectPda,
+          payer: provider.wallet.publicKey,
           releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
           escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
           escrow: escrowPda,
           escrowAuthority,
           artistTokenAccount: earlyOkArtistAta,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           projectEscrowProgram: projectEscrowProgramId,
+          rwaState: earlyOkRwa.rwaState,
+          rwaMint: earlyOkRwa.rwaMint,
+          rwaMintAuthority: earlyOkRwa.rwaMintAuthority,
+          rwaTokenProgram: rwaTokenProgramId,
+          systemProgram: SystemProgram.programId,
         })
         .remainingAccounts([
           { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
           { pubkey: getVoteWeightPda(earlyOkProjectPda, projectEscrowProgramId), isSigner: false, isWritable: false },
         ])
         .rpc();
-      const proposalAfter = await governance.account.proposal.fetch(proposalPda);
+      const proposalAfter = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(proposalPda) as { status: Record<string, unknown> };
       expect("passed" in proposalAfter.status).to.be.true;
     });
 
@@ -1976,7 +2073,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([notDecidedArtist])
@@ -1991,7 +2088,7 @@ describe("tastemaker-programs exhaustive", function () {
           [Buffer.from("backer"), notDecidedProjectPda.toBuffer(), backer.publicKey.toBuffer()],
           projectEscrowProgramId
         );
-        const backerAta = getAssociatedTokenAddressSync(tasteMint, backer.publicKey);
+        const backerAta = getAssociatedTokenAddressSync(tasteMint, backer.publicKey, false, TOKEN_2022_PROGRAM_ID);
         await projectEscrow.methods
           .fundProject(new anchor.BN(amt))
           .accounts({
@@ -2004,7 +2101,7 @@ describe("tastemaker-programs exhaustive", function () {
             burnVaultAuthority,
             burnVaultTokenAccount,
             tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
@@ -2048,30 +2145,37 @@ describe("tastemaker-programs exhaustive", function () {
         })
         .signers([backers[0]])
         .rpc();
-      const notDecidedArtistAta = getAssociatedTokenAddressSync(tasteMint, notDecidedArtist.publicKey);
+      const notDecidedArtistAta = getAssociatedTokenAddressSync(tasteMint, notDecidedArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
       {
         const ataInfo = await provider.connection.getAccountInfo(notDecidedArtistAta);
         if (!ataInfo) {
           const ataTx = new Transaction().add(
-            createAssociatedTokenAccountInstruction(notDecidedArtist.publicKey, notDecidedArtistAta, notDecidedArtist.publicKey, tasteMint)
+            createAssociatedTokenAccountInstruction(notDecidedArtist.publicKey, notDecidedArtistAta, notDecidedArtist.publicKey, tasteMint, TOKEN_2022_PROGRAM_ID)
           );
           await sendAndConfirmTransaction(provider.connection, ataTx, [notDecidedArtist]);
         }
       }
+      const notDecidedRwa = getRwaPdas(notDecidedProjectPda, rwaTokenProgramId);
       await expect(
         governance.methods
           .finalizeProposal()
           .accounts({
             proposal: proposalPda,
             project: notDecidedProjectPda,
+            payer: provider.wallet.publicKey,
             releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
             escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
             escrow: escrowPda,
             escrowAuthority,
             artistTokenAccount: notDecidedArtistAta,
             tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             projectEscrowProgram: projectEscrowProgramId,
+            rwaState: notDecidedRwa.rwaState,
+            rwaMint: notDecidedRwa.rwaMint,
+            rwaMintAuthority: notDecidedRwa.rwaMintAuthority,
+            rwaTokenProgram: rwaTokenProgramId,
+            systemProgram: SystemProgram.programId,
           })
           .remainingAccounts([
             { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
@@ -2121,7 +2225,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([activeArtist])
@@ -2147,7 +2251,7 @@ describe("tastemaker-programs exhaustive", function () {
             rwaState: rwaStatePda,
             rwaMint: rwaMintPda,
             rwaMintAuthority,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
           .signers([activeArtist])
@@ -2181,7 +2285,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([doubleArtist])
@@ -2192,7 +2296,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("backer"), doubleProjectPda.toBuffer(), backers[1].publicKey.toBuffer()],
         projectEscrowProgramId
       );
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[1].publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[1].publicKey, false, TOKEN_2022_PROGRAM_ID);
       const firstAmount = 5000 * LAMPORTS_PER_TASTE;
       const secondAmount = 3000 * LAMPORTS_PER_TASTE;
       await projectEscrow.methods
@@ -2207,7 +2311,7 @@ describe("tastemaker-programs exhaustive", function () {
           burnVaultAuthority,
           burnVaultTokenAccount,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -2225,13 +2329,13 @@ describe("tastemaker-programs exhaustive", function () {
           burnVaultAuthority,
           burnVaultTokenAccount,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([backers[1]])
         .rpc();
-      const backerAcc = await projectEscrow.account.backer.fetch(backerPda);
+      const backerAcc = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).backer.fetch(backerPda) as { amount: { toString(): string } };
       const expectedEscrow = (BigInt(firstAmount) * 96n) / 100n + (BigInt(secondAmount) * 96n) / 100n;
       expect(BigInt(backerAcc.amount.toString())).to.equal(expectedEscrow);
     });
@@ -2262,7 +2366,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([rejectArtist])
@@ -2274,7 +2378,7 @@ describe("tastemaker-programs exhaustive", function () {
           [Buffer.from("backer"), rejectProjectPda.toBuffer(), backers[i].publicKey.toBuffer()],
           projectEscrowProgramId
         );
-        const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[i].publicKey);
+        const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[i].publicKey, false, TOKEN_2022_PROGRAM_ID);
         await projectEscrow.methods
           .fundProject(new anchor.BN(Number(backerAmounts[i])))
           .accounts({
@@ -2287,7 +2391,7 @@ describe("tastemaker-programs exhaustive", function () {
             burnVaultAuthority,
             burnVaultTokenAccount,
             tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
@@ -2332,34 +2436,41 @@ describe("tastemaker-programs exhaustive", function () {
       }
       await new Promise((r) => setTimeout(r, 4000));
       // create artist ATA
-      const rejectArtistAta = getAssociatedTokenAddressSync(tasteMint, rejectArtist.publicKey);
+      const rejectArtistAta = getAssociatedTokenAddressSync(tasteMint, rejectArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
       {
         const ataInfo = await provider.connection.getAccountInfo(rejectArtistAta);
         if (!ataInfo) {
           const ataTx = new Transaction().add(
-            createAssociatedTokenAccountInstruction(rejectArtist.publicKey, rejectArtistAta, rejectArtist.publicKey, tasteMint)
+            createAssociatedTokenAccountInstruction(rejectArtist.publicKey, rejectArtistAta, rejectArtist.publicKey, tasteMint, TOKEN_2022_PROGRAM_ID)
           );
           await sendAndConfirmTransaction(provider.connection, ataTx, [rejectArtist]);
         }
       }
+      const rejectRwa = getRwaPdas(rejectProjectPda, rwaTokenProgramId);
       await governance.methods
         .finalizeProposal()
         .accounts({
           proposal: proposalPda,
           project: rejectProjectPda,
+          payer: provider.wallet.publicKey,
           releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
           escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
           escrow: escrowPda,
           escrowAuthority,
           artistTokenAccount: rejectArtistAta,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           projectEscrowProgram: projectEscrowProgramId,
+          rwaState: rejectRwa.rwaState,
+          rwaMint: rejectRwa.rwaMint,
+          rwaMintAuthority: rejectRwa.rwaMintAuthority,
+          rwaTokenProgram: rwaTokenProgramId,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
-      const proposal = await governance.account.proposal.fetch(proposalPda);
+      const proposal = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(proposalPda);
       expect((proposal as { status: { rejected?: unknown } }).status?.rejected !== undefined || (proposal as { status: number }).status === 1).to.be.true;
-      const project = await projectEscrow.account.project.fetch(rejectProjectPda);
+      const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(rejectProjectPda) as { currentMilestone: number };
       expect(project.currentMilestone).to.equal(0);
 
       // Material-edit proposal (milestone 255) on same project: create, vote, finalize, opt_out_refund
@@ -2419,7 +2530,7 @@ describe("tastemaker-programs exhaustive", function () {
         await provider.connection.confirmTransaction(sig, "confirmed");
       }
 
-      await (governance.methods as { finalizeMaterialEditProposal: (a: number[], b: anchor.BN, c: anchor.BN, d: anchor.BN, e: number[]) => { accounts: (acc: Record<string, unknown>) => { rpc: () => Promise<string> } } })
+      await (governance.methods as unknown as { finalizeMaterialEditProposal: (a: number[], b: anchor.BN, c: anchor.BN, d: anchor.BN, e: number[]) => { accounts: (acc: Record<string, unknown>) => { rpc: () => Promise<string> } } })
         .finalizeMaterialEditProposal(
           Array.from(newTermsHash),
           new anchor.BN(7 * 24 * 3600),
@@ -2443,7 +2554,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("backer"), rejectProjectPda.toBuffer(), backers[0].publicKey.toBuffer()],
         projectEscrowProgramId
       )[0];
-      const firstBackerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey);
+      const firstBackerAta = getAssociatedTokenAddressSync(tasteMint, backers[0].publicKey, false, TOKEN_2022_PROGRAM_ID);
       await projectEscrow.methods
         .optOutRefund()
         .accounts({
@@ -2455,11 +2566,11 @@ describe("tastemaker-programs exhaustive", function () {
           escrow: escrowPda,
           escrowAuthority,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .signers([backers[0]])
         .rpc();
-      const backerAfter = await projectEscrow.account.backer.fetch(firstBackerPda);
+      const backerAfter = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).backer.fetch(firstBackerPda) as { amount: { toString(): string } };
       expect(BigInt(backerAfter.amount.toString())).to.equal(0n);
     });
 
@@ -2489,7 +2600,7 @@ describe("tastemaker-programs exhaustive", function () {
           escrowAuthority,
           escrow: escrowPda,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([quorumArtist])
@@ -2500,7 +2611,7 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("backer"), quorumProjectPda.toBuffer(), backers[2].publicKey.toBuffer()],
         projectEscrowProgramId
       );
-      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[2].publicKey);
+      const backerAta = getAssociatedTokenAddressSync(tasteMint, backers[2].publicKey, false, TOKEN_2022_PROGRAM_ID);
       const tinyAmount = 100 * LAMPORTS_PER_TASTE;
       await projectEscrow.methods
         .fundProject(new anchor.BN(tinyAmount))
@@ -2514,7 +2625,7 @@ describe("tastemaker-programs exhaustive", function () {
           burnVaultAuthority,
           burnVaultTokenAccount,
           tasteMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -2537,31 +2648,37 @@ describe("tastemaker-programs exhaustive", function () {
         .rpc();
       await new Promise((r) => setTimeout(r, 3000));
       // create artist ATA
-      const quorumArtistAta = getAssociatedTokenAddressSync(tasteMint, quorumArtist.publicKey);
+      const quorumArtistAta = getAssociatedTokenAddressSync(tasteMint, quorumArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
       {
         const ataInfo = await provider.connection.getAccountInfo(quorumArtistAta);
         if (!ataInfo) {
           const ataTx = new Transaction().add(
-            createAssociatedTokenAccountInstruction(quorumArtist.publicKey, quorumArtistAta, quorumArtist.publicKey, tasteMint)
+            createAssociatedTokenAccountInstruction(quorumArtist.publicKey, quorumArtistAta, quorumArtist.publicKey, tasteMint, TOKEN_2022_PROGRAM_ID)
           );
           await sendAndConfirmTransaction(provider.connection, ataTx, [quorumArtist]);
         }
       }
+      const quorumRwa = getRwaPdas(quorumProjectPda, rwaTokenProgramId);
       await expect(
         governance.methods
           .finalizeProposal()
           .accounts({
             proposal: proposalPda,
             project: quorumProjectPda,
+            payer: provider.wallet.publicKey,
             releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
             escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
             escrow: escrowPda,
             escrowAuthority,
             artistTokenAccount: quorumArtistAta,
             tasteMint,
-            taste_mint: tasteMint,
-            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
             projectEscrowProgram: projectEscrowProgramId,
+            rwaState: quorumRwa.rwaState,
+            rwaMint: quorumRwa.rwaMint,
+            rwaMintAuthority: quorumRwa.rwaMintAuthority,
+            rwaTokenProgram: rwaTokenProgramId,
+            systemProgram: SystemProgram.programId,
           })
           .rpc()
       ).to.be.rejectedWith(/QuorumNotMet|quorum not met/);
@@ -2569,22 +2686,22 @@ describe("tastemaker-programs exhaustive", function () {
 
     it("milestone release math: portions per milestone, no refill; escrow drained", async () => {
       const projectPda = getProjectPda(artist.publicKey, 0, projectEscrowProgramId);
-      const project = await projectEscrow.account.project.fetch(projectPda);
+      const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(projectPda) as { totalRaised: { toString(): string }; milestonePercentages: number[]; currentMilestone: number };
       const totalRaised = BigInt(project.totalRaised.toString());
-      const pcts = project.milestonePercentages as number[];
+      const pcts = project.milestonePercentages;
       // each milestone releases (total_raised * pct) / 100
       let expectedReleased = 0n;
       for (let i = 0; i < pcts.length; i++) {
         expectedReleased += (totalRaised * BigInt(pcts[i])) / 100n;
       }
       expect(expectedReleased).to.equal(totalRaised);
-      const artistAta = getAssociatedTokenAddressSync(tasteMint, artist.publicKey);
+      const artistAta = getAssociatedTokenAddressSync(tasteMint, artist.publicKey, false, TOKEN_2022_PROGRAM_ID);
       const artistAtaInfo = await provider.connection.getAccountInfo(artistAta);
       if (!artistAtaInfo) {
         throw new Error("Artist ATA missing; main flow (5 milestone proposals) may not have completed. Ensure prior tests passed.");
       }
-      const artistBalance = (await getAccount(provider.connection, artistAta)).amount;
-      const artistBal = typeof artistBalance === "bigint" ? artistBalance : BigInt(artistBalance.toString());
+      const artistBalance = (await getAccount(provider.connection, artistAta, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      const artistBal = typeof artistBalance === "bigint" ? artistBalance : BigInt(String(artistBalance));
       const tolerance = totalRaised / 10n;
       expect(artistBal >= expectedReleased - tolerance).to.be.true;
       expect(artistBal <= expectedReleased + tolerance).to.be.true;
@@ -2597,8 +2714,8 @@ describe("tastemaker-programs exhaustive", function () {
       if (!escrowInfo) {
         throw new Error("Escrow account missing; project state may be inconsistent.");
       }
-      const escrowBalance = (await getAccount(provider.connection, escrowPda)).amount;
-      const escrowAmt = typeof escrowBalance === "bigint" ? escrowBalance : BigInt(escrowBalance.toString());
+      const escrowBalance = (await getAccount(provider.connection, escrowPda, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      const escrowAmt = typeof escrowBalance === "bigint" ? escrowBalance : BigInt(String(escrowBalance));
       // If main flow completed, escrow is 0; if proposals never ran, escrow still has funds
       if (project.currentMilestone >= 5) {
         expect(escrowAmt).to.equal(0n);

@@ -3,8 +3,7 @@
 //! Max supply 1B $TASTE (whitepaper). Mint authority can be revoked after TGE.
 
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program::invoke;
-use anchor_spl::token_interface::{Mint, MintTo, TokenAccount, TokenInterface};
+use anchor_spl::token_interface::{Mint, MintTo, SetAuthority, TokenAccount, TokenInterface};
 
 // Anchor programs must be deployed at their declared ID.
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
@@ -91,20 +90,17 @@ pub mod taste_token {
     }
 
     pub fn freeze_mint_authority(ctx: Context<FreezeMintAuthority>) -> Result<()> {
-        let ix = spl_token::instruction::set_authority(
-            &ctx.accounts.token_program.key(),
-            &ctx.accounts.mint.key(),
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            SetAuthority {
+                current_authority: ctx.accounts.mint_authority.to_account_info(),
+                account_or_mint: ctx.accounts.mint.to_account_info(),
+            },
+        );
+        anchor_spl::token_interface::set_authority(
+            cpi_ctx,
+            anchor_spl::token_interface::spl_token_2022::instruction::AuthorityType::MintTokens,
             None,
-            spl_token::instruction::AuthorityType::MintTokens,
-            &ctx.accounts.mint_authority.key(),
-            &[],
-        )?;
-        invoke(
-            &ix,
-            &[
-                ctx.accounts.mint.to_account_info(),
-                ctx.accounts.mint_authority.to_account_info(),
-            ],
         )?;
         msg!("Mint authority revoked for $TASTE mint");
         Ok(())
