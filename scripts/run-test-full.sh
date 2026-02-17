@@ -7,13 +7,22 @@ cd "$ROOT_DIR"
 # Align program IDs with deploy keypairs (same as CI) so built IDL matches deployed programs.
 anchor keys sync
 
+# Metaplex Token Metadata program for receipt/RWA metadata tests (CI downloads if missing).
+MPL_PROGRAM_ID="metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+METADATA_SO="${ROOT_DIR}/test-programs/metadata.so"
+if [ ! -f "$METADATA_SO" ]; then
+  mkdir -p "${ROOT_DIR}/test-programs"
+  echo "Downloading Metaplex Token Metadata program for local validator..."
+  solana program dump -u m "$MPL_PROGRAM_ID" "$METADATA_SO"
+fi
+
 VALIDATOR_LOG="${ROOT_DIR}/.validator-test.log"
 pkill -f "solana-test-validator" >/dev/null 2>&1 || true
 pkill -f "surfpool start" >/dev/null 2>&1 || true
 fuser -k 8899/tcp >/dev/null 2>&1 || true
 fuser -k 8900/tcp >/dev/null 2>&1 || true
 
-solana-test-validator --reset --ledger "${ROOT_DIR}/.test-ledger-ci" >"$VALIDATOR_LOG" 2>&1 &
+solana-test-validator --reset --ledger "${ROOT_DIR}/.test-ledger-ci" --bpf-program "$MPL_PROGRAM_ID" "$METADATA_SO" >"$VALIDATOR_LOG" 2>&1 &
 VALIDATOR_PID=$!
 
 cleanup() {

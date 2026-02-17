@@ -37,3 +37,7 @@ test = "node scripts/patch-governance-idl.cjs && mkdir -p dist/tests && npx esbu
 startup_wait = 5000
 shutdown_wait = 2000
 upgradeable = true
+
+[[test.genesis]]
+address = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+program = "test-programs/metadata.so"

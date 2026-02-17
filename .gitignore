@@ -22,3 +22,6 @@ deploy-keypair.json
 
 # Internal team runbooks are local-only (not pushed publicly)
 docs/
+
+# Metaplex program binary for local test validator (CI downloads via run-test-full.sh)
+test-programs/*.so

@@ -1,7 +1,7 @@
 //! TasteMaker per-project RWA token. Mint on project completion; backers claim (pull).
 
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, MintTo, TokenAccount, TokenInterface};
+use anchor_spl::token_interface::{Burn, Mint, MintTo, TokenAccount, TokenInterface};
 use mpl_token_metadata::{
     accounts::Metadata, instructions::CreateV1CpiBuilder, types::TokenStandard,
     ID as MPL_TOKEN_METADATA_ID,
@@ -91,6 +91,39 @@ pub mod rwa_token {
         );
         require!(backer_account.amount > 0, RwaError::NoContribution);
 
+        // Require and burn on-chain receipt: receipt mint must be project_escrow PDA [b"receipt", project, backer].
+        require!(
+            ctx.accounts.project_escrow_program.key() == project_escrow::ID,
+            RwaError::InvalidReceipt
+        );
+        let (expected_receipt_mint, _) = Pubkey::find_program_address(
+            &[
+                b"receipt",
+                project_key.as_ref(),
+                ctx.accounts.backer.key().as_ref(),
+            ],
+            &ctx.accounts.project_escrow_program.key(),
+        );
+        require!(
+            ctx.accounts.receipt_mint.key() == expected_receipt_mint,
+            RwaError::InvalidReceipt
+        );
+        require!(
+            ctx.accounts.receipt_token_account.amount >= 1,
+            RwaError::InvalidReceipt
+        );
+        anchor_spl::token_interface::burn(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Burn {
+                    from: ctx.accounts.receipt_token_account.to_account_info(),
+                    mint: ctx.accounts.receipt_mint.to_account_info(),
+                    authority: ctx.accounts.backer.to_account_info(),
+                },
+            ),
+            1,
+        )?;
+
         let total_raised = ctx.accounts.project.total_raised;
         require!(total_raised > 0, RwaError::InvalidAmounts);
 
@@ -131,6 +164,73 @@ pub mod rwa_token {
         );
         anchor_spl::token_interface::mint_to(cpi_ctx, share)?;
         msg!("Claimed {} RWA tokens", share);
+        Ok(())
+    }
+
+    /// Claim RWA tokens for backers who funded before on-chain receipts existed (no receipt to burn).
+    pub fn claim_rwa_tokens_legacy(ctx: Context<ClaimRwaTokensLegacy>) -> Result<()> {
+        let is_frozen = ctx.accounts.rwa_state.mint_frozen;
+        let total_supply = ctx.accounts.rwa_state.total_supply;
+        let project_key = ctx.accounts.rwa_state.project;
+        let current_minted = ctx.accounts.rwa_state.minted;
+
+        require!(!is_frozen, RwaError::MintFrozen);
+        require!(
+            ctx.accounts.project.status == ProjectStatus::Completed,
+            RwaError::ProjectNotCompleted
+        );
+
+        let backer_account = &ctx.accounts.backer_account;
+        require!(
+            backer_account.wallet == ctx.accounts.backer.key(),
+            RwaError::NotBacker
+        );
+        require!(
+            backer_account.project == project_key,
+            RwaError::WrongProject
+        );
+        require!(backer_account.amount > 0, RwaError::NoContribution);
+
+        let total_raised = ctx.accounts.project.total_raised;
+        require!(total_raised > 0, RwaError::InvalidAmounts);
+
+        require!(!ctx.accounts.claim_record.claimed, RwaError::AlreadyClaimed);
+
+        let share = (backer_account.amount as u128)
+            .checked_mul(total_supply as u128)
+            .ok_or(RwaError::Overflow)?
+            .checked_div(total_raised as u128)
+            .ok_or(RwaError::Overflow)? as u64;
+
+        require!(share > 0, RwaError::ZeroShare);
+
+        let new_minted = current_minted
+            .checked_add(share)
+            .ok_or(RwaError::Overflow)?;
+        require!(new_minted <= total_supply, RwaError::ExceedsSupply);
+
+        ctx.accounts.rwa_state.minted = new_minted;
+        ctx.accounts.claim_record.claimed = true;
+
+        let (_, bump) = Pubkey::find_program_address(
+            &[b"rwa_mint_authority", project_key.as_ref()],
+            ctx.program_id,
+        );
+        let seeds: &[&[u8]] = &[b"rwa_mint_authority", project_key.as_ref(), &[bump]];
+        let signer_seeds = &[seeds];
+
+        let cpi_accounts = MintTo {
+            mint: ctx.accounts.rwa_mint.to_account_info(),
+            to: ctx.accounts.backer_token_account.to_account_info(),
+            authority: ctx.accounts.rwa_mint_authority.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_accounts,
+            signer_seeds,
+        );
+        anchor_spl::token_interface::mint_to(cpi_ctx, share)?;
+        msg!("Claimed {} RWA tokens (legacy)", share);
         Ok(())
     }
 
@@ -245,6 +345,8 @@ pub enum RwaError {
     InvalidTokenMetadataProgram,
     #[msg("Signer is not the governance release authority")]
     NotReleaseAuthority,
+    #[msg("Receipt mint or token account invalid; must hold 1 receipt to claim")]
+    InvalidReceipt,
 }
 
 #[account]
@@ -341,6 +443,69 @@ pub struct InitializeRwaMintByGovernance<'info> {
 
 #[derive(Accounts)]
 pub struct ClaimRwaTokens<'info> {
+    #[account(mut)]
+    pub backer: Signer<'info>,
+
+    #[account(
+        constraint = backer_account.wallet == backer.key(),
+        constraint = backer_account.project == rwa_state.project,
+    )]
+    pub backer_account: Account<'info, Backer>,
+
+    #[account(constraint = project.key() == rwa_state.project)]
+    pub project: Account<'info, Project>,
+
+    #[account(mut)]
+    pub rwa_state: Account<'info, RwaState>,
+
+    #[account(mut)]
+    pub rwa_mint: InterfaceAccount<'info, Mint>,
+
+    /// CHECK: PDA for mint authority
+    #[account(seeds = [b"rwa_mint_authority", rwa_state.project.as_ref()], bump)]
+    pub rwa_mint_authority: UncheckedAccount<'info>,
+
+    /// Receipt mint PDA from project_escrow [b"receipt", project, backer]; validated in instruction.
+    pub receipt_mint: InterfaceAccount<'info, Mint>,
+
+    /// Backer's token account for the receipt mint; must hold >= 1. Burned in instruction.
+    #[account(
+        mut,
+        constraint = receipt_token_account.mint == receipt_mint.key(),
+        constraint = receipt_token_account.owner == backer.key(),
+    )]
+    pub receipt_token_account: InterfaceAccount<'info, TokenAccount>,
+
+    /// Project escrow program (validated must equal project_escrow::ID for PDA derivation).
+    /// CHECK: Validated in instruction
+    pub project_escrow_program: UncheckedAccount<'info>,
+
+    #[account(
+        init_if_needed,
+        payer = backer,
+        space = 8 + 1,
+        seeds = [b"claim", rwa_state.project.as_ref(), backer.key().as_ref()],
+        bump,
+    )]
+    pub claim_record: Account<'info, ClaimRecord>,
+
+    #[account(
+        init_if_needed,
+        payer = backer,
+        associated_token::mint = rwa_mint,
+        associated_token::authority = backer,
+        associated_token::token_program = token_program,
+    )]
+    pub backer_token_account: InterfaceAccount<'info, TokenAccount>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Same as ClaimRwaTokens but without receipt accounts; for backers who funded before on-chain receipts.
+#[derive(Accounts)]
+pub struct ClaimRwaTokensLegacy<'info> {
     #[account(mut)]
     pub backer: Signer<'info>,
 

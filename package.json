@@ -10,7 +10,9 @@
     "init-escrow-config": "ts-node scripts/init-escrow-config.ts",
     "init-governance-config": "ts-node scripts/init-governance-config.ts",
     "backfill-vote-weight-pdas": "ts-node scripts/backfill-vote-weight-pdas.ts",
-    "add-taste-metadata": "ts-node scripts/add-taste-metadata.ts"
+    "add-taste-metadata": "ts-node scripts/add-taste-metadata.ts",
+    "initialize-rwa-mint": "ts-node scripts/initialize-rwa-mint.ts",
+    "initialize-rwa-metadata": "ts-node scripts/initialize-rwa-metadata.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.0",

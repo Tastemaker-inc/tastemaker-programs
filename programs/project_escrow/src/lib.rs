@@ -1,7 +1,15 @@
 //! TasteMaker project escrow: hold $TASTE, release on milestone votes (via governance CPI).
 
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Burn, Mint, TokenAccount, TokenInterface, TransferChecked};
+use anchor_spl::token_interface::{
+    Burn, Mint, MintTo, TokenAccount, TokenInterface, TransferChecked,
+};
+use mpl_token_metadata::{
+    accounts::{MasterEdition, Metadata},
+    instructions::CreateV1CpiBuilder,
+    types::{PrintSupply, TokenStandard},
+    ID as MPL_TOKEN_METADATA_ID,
+};
 
 // Anchor programs must be deployed at their declared ID.
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
@@ -69,6 +77,12 @@ pub enum EscrowError {
     AlreadyOptedOut,
     #[msg("Milestones already released; opt-out only when current_milestone is 0")]
     MilestonesAlreadyReleased,
+    #[msg("Receipt metadata URI too long (max 200)")]
+    MetadataUriTooLong,
+    #[msg("Metadata account does not match expected PDA")]
+    InvalidMetadataAccount,
+    #[msg("Token metadata program is not the expected Metaplex program")]
+    InvalidTokenMetadataProgram,
 }
 
 pub const MAX_MILESTONES: usize = 5;
@@ -579,6 +593,91 @@ pub mod project_escrow {
         msg!("Opt-out refund {} $TASTE", amount);
         Ok(())
     }
+
+    /// Mints a single receipt NFT (Token-2022) for the backer at PDA [b"receipt", project, backer].
+    /// Call after fund_project (same tx or later). Client must insert (project_pda, wallet, mint=receipt_mint_pda) into receipt_mints so receipt-metadata API resolves.
+    pub fn mint_receipt(ctx: Context<MintReceipt>, metadata_uri: String) -> Result<()> {
+        require!(metadata_uri.len() <= 200, EscrowError::MetadataUriTooLong);
+        let backer = &ctx.accounts.backer;
+        require!(backer.amount > 0, EscrowError::NothingToRefund);
+
+        let receipt_authority_bump = ctx.bumps.receipt_authority;
+        let receipt_mint_bump = ctx.bumps.receipt_mint;
+        let project_key = ctx.accounts.project.key();
+        let backer_key = ctx.accounts.backer_wallet.key();
+        let receipt_authority_seeds: &[&[u8]] = &[
+            b"receipt_authority".as_ref(),
+            project_key.as_ref(),
+            backer_key.as_ref(),
+            &[receipt_authority_bump],
+        ];
+        let receipt_mint_seeds: &[&[u8]] = &[
+            b"receipt".as_ref(),
+            project_key.as_ref(),
+            backer_key.as_ref(),
+            &[receipt_mint_bump],
+        ];
+        let signer_seeds: &[&[&[u8]]] = &[receipt_authority_seeds, receipt_mint_seeds];
+
+        anchor_spl::token_interface::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                MintTo {
+                    mint: ctx.accounts.receipt_mint.to_account_info(),
+                    to: ctx.accounts.backer_receipt_ata.to_account_info(),
+                    authority: ctx.accounts.receipt_authority.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            1,
+        )?;
+
+        let (metadata_pda, _) = Metadata::find_pda(&ctx.accounts.receipt_mint.key());
+        let (master_edition_pda, _) = MasterEdition::find_pda(&ctx.accounts.receipt_mint.key());
+        require_keys_eq!(
+            ctx.accounts.metadata.key(),
+            metadata_pda,
+            EscrowError::InvalidMetadataAccount
+        );
+        require_keys_eq!(
+            ctx.accounts.master_edition.key(),
+            master_edition_pda,
+            EscrowError::InvalidMetadataAccount
+        );
+        require!(
+            ctx.accounts.token_metadata_program.key() == MPL_TOKEN_METADATA_ID,
+            EscrowError::InvalidTokenMetadataProgram
+        );
+
+        let name = "TasteMaker IOU".to_string();
+        let symbol = "TM-IOU".to_string();
+        CreateV1CpiBuilder::new(ctx.accounts.token_metadata_program.as_ref())
+            .metadata(ctx.accounts.metadata.as_ref())
+            .master_edition(Some(ctx.accounts.master_edition.as_ref()))
+            .mint(ctx.accounts.receipt_mint.as_ref(), true)
+            .authority(ctx.accounts.receipt_authority.as_ref())
+            .payer(ctx.accounts.backer_wallet.as_ref())
+            .update_authority(ctx.accounts.receipt_authority.as_ref(), true)
+            .system_program(ctx.accounts.system_program.as_ref())
+            .sysvar_instructions(ctx.accounts.sysvar_instructions.as_ref())
+            .spl_token_program(Some(ctx.accounts.token_program.as_ref()))
+            .name(name)
+            .symbol(symbol)
+            .uri(metadata_uri)
+            .seller_fee_basis_points(0)
+            .primary_sale_happened(false)
+            .is_mutable(true)
+            .token_standard(TokenStandard::NonFungible)
+            .print_supply(PrintSupply::Zero)
+            .invoke_signed(signer_seeds)?;
+
+        msg!(
+            "Receipt minted for backer {} on project {}",
+            backer_key,
+            project_key
+        );
+        Ok(())
+    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
@@ -802,6 +901,67 @@ pub struct FundProject<'info> {
         bump,
     )]
     pub vote_weight: Box<Account<'info, ProjectVoteWeight>>,
+}
+
+#[derive(Accounts)]
+pub struct MintReceipt<'info> {
+    #[account(mut)]
+    pub backer_wallet: Signer<'info>,
+
+    pub project: Box<Account<'info, Project>>,
+
+    #[account(
+        constraint = backer.wallet == backer_wallet.key(),
+        constraint = backer.project == project.key(),
+    )]
+    pub backer: Box<Account<'info, Backer>>,
+
+    /// PDA: mint authority for the receipt mint; signs for mint_to and CreateV1.
+    /// CHECK: PDA validated by seeds
+    #[account(seeds = [b"receipt_authority", project.key().as_ref(), backer_wallet.key().as_ref()], bump)]
+    pub receipt_authority: UncheckedAccount<'info>,
+
+    #[account(
+        init,
+        payer = backer_wallet,
+        seeds = [b"receipt", project.key().as_ref(), backer_wallet.key().as_ref()],
+        bump,
+        mint::decimals = 0,
+        mint::authority = receipt_authority,
+        mint::freeze_authority = receipt_authority,
+    )]
+    pub receipt_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        init_if_needed,
+        payer = backer_wallet,
+        associated_token::mint = receipt_mint,
+        associated_token::authority = backer_wallet,
+        associated_token::token_program = token_program,
+    )]
+    pub backer_receipt_ata: InterfaceAccount<'info, TokenAccount>,
+
+    /// Metaplex metadata PDA for receipt_mint; validated in handler.
+    /// CHECK: Validated against Metadata::find_pda(receipt_mint)
+    #[account(mut)]
+    pub metadata: UncheckedAccount<'info>,
+
+    /// Metaplex master edition PDA for receipt_mint; validated in handler.
+    /// CHECK: Validated against MasterEdition::find_pda(receipt_mint)
+    #[account(mut)]
+    pub master_edition: UncheckedAccount<'info>,
+
+    /// Metaplex Token Metadata program (MPL_TOKEN_METADATA_ID).
+    /// CHECK: Validated in instruction
+    pub token_metadata_program: UncheckedAccount<'info>,
+
+    /// Sysvar Instructions (required by Metaplex CreateV1).
+    /// CHECK: Required by Metaplex
+    pub sysvar_instructions: UncheckedAccount<'info>,
+
+    pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]

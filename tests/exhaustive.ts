@@ -148,6 +148,20 @@ function getProjectTermsPda(project: PublicKey, projectEscrowProgramId: PublicKe
   )[0];
 }
 
+function getReceiptMintPda(project: PublicKey, backer: PublicKey, projectEscrowProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("receipt"), project.toBuffer(), backer.toBuffer()],
+    projectEscrowProgramId
+  )[0];
+}
+
+function getReceiptAuthorityPda(project: PublicKey, backer: PublicKey, projectEscrowProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("receipt_authority"), project.toBuffer(), backer.toBuffer()],
+    projectEscrowProgramId
+  )[0];
+}
+
 function getProposalAttemptPda(project: PublicKey, governanceProgramId: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("proposal_attempt"), project.toBuffer()],
@@ -207,6 +221,8 @@ describe("tastemaker-programs exhaustive", function () {
   const BACKER_COUNT = 40;
   const backers: Keypair[] = [];
   const backerAmounts: bigint[] = [];
+  const legacyBackers = [Keypair.generate(), Keypair.generate()];
+  const LEGACY_BACKER_AMOUNTS = [1_000_000n * BigInt(LAMPORTS_PER_TASTE), 2_000_000n * BigInt(LAMPORTS_PER_TASTE)];
   let cancelProposalBacker: Keypair;
   let cancelBacker: Keypair;
 
@@ -259,6 +275,7 @@ describe("tastemaker-programs exhaustive", function () {
     await airdrop(cancelProposalBacker.publicKey);
     cancelBacker = Keypair.generate();
     await airdrop(cancelBacker.publicKey);
+    for (const b of legacyBackers) await airdrop(b.publicKey);
   });
 
   describe("project_escrow config", () => {
@@ -430,6 +447,32 @@ describe("tastemaker-programs exhaustive", function () {
         }
         await tasteToken.methods
           .mintTo(new anchor.BN(amount.toString()))
+          .accounts({
+            mintAuthority: provider.wallet.publicKey,
+            mint: tasteMint,
+            recipient: backerAta,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+          })
+          .rpc();
+      }
+      // Legacy backers: create ATAs and mint TASTE so claim_rwa_tokens_legacy can fund and claim
+      for (let i = 0; i < legacyBackers.length; i++) {
+        const backerAta = getAssociatedTokenAddressSync(tasteMint, legacyBackers[i].publicKey, false, TOKEN_2022_PROGRAM_ID);
+        const info = await provider.connection.getAccountInfo(backerAta);
+        if (!info) {
+          const tx = new Transaction().add(
+            createAssociatedTokenAccountInstruction(
+              legacyBackers[i].publicKey,
+              backerAta,
+              legacyBackers[i].publicKey,
+              tasteMint,
+              TOKEN_2022_PROGRAM_ID
+            )
+          );
+          await sendAndConfirmTransaction(provider.connection, tx, [legacyBackers[i]]);
+        }
+        await tasteToken.methods
+          .mintTo(new anchor.BN(LEGACY_BACKER_AMOUNTS[i].toString()))
           .accounts({
             mintAuthority: provider.wallet.publicKey,
             mint: tasteMint,
@@ -620,6 +663,234 @@ describe("tastemaker-programs exhaustive", function () {
       const expectedEscrow = (totalFunded * 96n) / 100n;
       expect(BigInt(project.totalRaised.toString())).to.equal(expectedEscrow);
       expect(project.backerCount).to.equal(BACKER_COUNT);
+    });
+
+    describe("project_escrow mint_receipt", () => {
+      const MPL_TOKEN_METADATA_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+      const SYSVAR_INSTRUCTIONS_ID = new PublicKey("Sysvar1nstructions1111111111111111111111111");
+
+      function getMetaplexMetadataPda(mint: PublicKey): PublicKey {
+        return PublicKey.findProgramAddressSync(
+          [Buffer.from("metadata"), MPL_TOKEN_METADATA_ID.toBuffer(), mint.toBuffer()],
+          MPL_TOKEN_METADATA_ID
+        )[0];
+      }
+      function getMetaplexMasterEditionPda(mint: PublicKey): PublicKey {
+        return PublicKey.findProgramAddressSync(
+          [Buffer.from("metadata"), MPL_TOKEN_METADATA_ID.toBuffer(), mint.toBuffer(), Buffer.from("edition")],
+          MPL_TOKEN_METADATA_ID
+        )[0];
+      }
+
+      it("mint_receipt for first backer", async () => {
+        const metadataUri = "https://example.com/receipt-metadata.json";
+        const backerIdx = 0;
+        const [backerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("backer"), projectPda.toBuffer(), backers[backerIdx].publicKey.toBuffer()],
+          projectEscrowProgramId
+        );
+        const receiptMintPda = getReceiptMintPda(projectPda, backers[backerIdx].publicKey, projectEscrowProgramId);
+        const receiptAuthorityPda = getReceiptAuthorityPda(projectPda, backers[backerIdx].publicKey, projectEscrowProgramId);
+        const backerReceiptAta = getAssociatedTokenAddressSync(
+          receiptMintPda,
+          backers[backerIdx].publicKey,
+          false,
+          TOKEN_2022_PROGRAM_ID
+        );
+        const metadataPda = getMetaplexMetadataPda(receiptMintPda);
+        const masterEditionPda = getMetaplexMasterEditionPda(receiptMintPda);
+
+        await (projectEscrow.methods as unknown as { mintReceipt: (uri: string) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).mintReceipt(metadataUri)
+          .accounts({
+            backerWallet: backers[backerIdx].publicKey,
+            project: projectPda,
+            backer: backerPda,
+            receiptAuthority: receiptAuthorityPda,
+            receiptMint: receiptMintPda,
+            backerReceiptAta,
+            metadata: metadataPda,
+            masterEdition: masterEditionPda,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([backers[backerIdx]])
+          .rpc();
+
+        const mintAccountInfo = await provider.connection.getAccountInfo(receiptMintPda);
+        expect(mintAccountInfo).to.not.be.null;
+        expect(mintAccountInfo!.owner.equals(TOKEN_2022_PROGRAM_ID)).to.be.true;
+        const mintData = mintAccountInfo!.data;
+        // SPL Mint layout: mint_authority Option<Pubkey>=33, supply u64=8, decimals u8=1, ...
+        const supply = mintData.readBigUInt64LE(33);
+        const decimals = mintData.readUInt8(41);
+        expect(Number(supply)).to.equal(1);
+        expect(decimals).to.equal(0);
+        const ataInfo = await getAccount(provider.connection, backerReceiptAta);
+        expect(Number(ataInfo.amount)).to.equal(1);
+      });
+
+      it("mint_receipt for all backers", async () => {
+        const metadataUri = "https://example.com/receipt-metadata.json";
+        for (let i = 1; i < backers.length; i++) {
+          // backer 0 already has receipt from previous test
+          const [backerPda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("backer"), projectPda.toBuffer(), backers[i].publicKey.toBuffer()],
+            projectEscrowProgramId
+          );
+          const receiptMintPda = getReceiptMintPda(projectPda, backers[i].publicKey, projectEscrowProgramId);
+          const receiptAuthorityPda = getReceiptAuthorityPda(projectPda, backers[i].publicKey, projectEscrowProgramId);
+          const backerReceiptAta = getAssociatedTokenAddressSync(
+            receiptMintPda,
+            backers[i].publicKey,
+            false,
+            TOKEN_2022_PROGRAM_ID
+          );
+          const metadataPda = getMetaplexMetadataPda(receiptMintPda);
+          const masterEditionPda = getMetaplexMasterEditionPda(receiptMintPda);
+
+          await (projectEscrow.methods as unknown as { mintReceipt: (uri: string) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).mintReceipt(metadataUri)
+            .accounts({
+              backerWallet: backers[i].publicKey,
+              project: projectPda,
+              backer: backerPda,
+              receiptAuthority: receiptAuthorityPda,
+              receiptMint: receiptMintPda,
+              backerReceiptAta,
+              metadata: metadataPda,
+              masterEdition: masterEditionPda,
+              tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+              sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+              tokenProgram: TOKEN_2022_PROGRAM_ID,
+              associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([backers[i]])
+            .rpc();
+        }
+      });
+
+      it("second mint_receipt for same backer fails", async () => {
+        const metadataUri = "https://example.com/receipt-metadata.json";
+        const backerIdx = 0;
+        const [backerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("backer"), projectPda.toBuffer(), backers[backerIdx].publicKey.toBuffer()],
+          projectEscrowProgramId
+        );
+        const receiptMintPda = getReceiptMintPda(projectPda, backers[backerIdx].publicKey, projectEscrowProgramId);
+        const receiptAuthorityPda = getReceiptAuthorityPda(projectPda, backers[backerIdx].publicKey, projectEscrowProgramId);
+        const backerReceiptAta = getAssociatedTokenAddressSync(
+          receiptMintPda,
+          backers[backerIdx].publicKey,
+          false,
+          TOKEN_2022_PROGRAM_ID
+        );
+        const metadataPda = getMetaplexMetadataPda(receiptMintPda);
+        const masterEditionPda = getMetaplexMasterEditionPda(receiptMintPda);
+
+        await expect(
+          (projectEscrow.methods as unknown as { mintReceipt: (uri: string) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).mintReceipt(metadataUri)
+            .accounts({
+              backerWallet: backers[backerIdx].publicKey,
+              project: projectPda,
+              backer: backerPda,
+              receiptAuthority: receiptAuthorityPda,
+              receiptMint: receiptMintPda,
+              backerReceiptAta,
+              metadata: metadataPda,
+              masterEdition: masterEditionPda,
+              tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+              sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+              tokenProgram: TOKEN_2022_PROGRAM_ID,
+              associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([backers[backerIdx]])
+            .rpc()
+        ).to.be.rejected;
+      });
+
+      it("mint_receipt fails for non-backer", async () => {
+        const nonBacker = Keypair.generate();
+        await airdrop(nonBacker.publicKey);
+        const [backerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("backer"), projectPda.toBuffer(), nonBacker.publicKey.toBuffer()],
+          projectEscrowProgramId
+        );
+        const receiptMintPda = getReceiptMintPda(projectPda, nonBacker.publicKey, projectEscrowProgramId);
+        const receiptAuthorityPda = getReceiptAuthorityPda(projectPda, nonBacker.publicKey, projectEscrowProgramId);
+        const backerReceiptAta = getAssociatedTokenAddressSync(
+          receiptMintPda,
+          nonBacker.publicKey,
+          false,
+          TOKEN_2022_PROGRAM_ID
+        );
+        const metadataPda = getMetaplexMetadataPda(receiptMintPda);
+        const masterEditionPda = getMetaplexMasterEditionPda(receiptMintPda);
+
+        await expect(
+          (projectEscrow.methods as unknown as { mintReceipt: (uri: string) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).mintReceipt("https://x.com")
+            .accounts({
+              backerWallet: nonBacker.publicKey,
+              project: projectPda,
+              backer: backerPda,
+              receiptAuthority: receiptAuthorityPda,
+              receiptMint: receiptMintPda,
+              backerReceiptAta,
+              metadata: metadataPda,
+              masterEdition: masterEditionPda,
+              tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+              sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+              tokenProgram: TOKEN_2022_PROGRAM_ID,
+              associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([nonBacker])
+            .rpc()
+        ).to.be.rejectedWith(/NothingToRefund|backer|AccountNotInitialized|Constraint|0x/i);
+      });
+
+      it("mint_receipt rejects URI over 200 chars", async () => {
+        const longUri = "https://example.com/" + "x".repeat(201);
+        const backerIdx = 1;
+        const [backerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("backer"), projectPda.toBuffer(), backers[backerIdx].publicKey.toBuffer()],
+          projectEscrowProgramId
+        );
+        const receiptMintPda = getReceiptMintPda(projectPda, backers[backerIdx].publicKey, projectEscrowProgramId);
+        const receiptAuthorityPda = getReceiptAuthorityPda(projectPda, backers[backerIdx].publicKey, projectEscrowProgramId);
+        const backerReceiptAta = getAssociatedTokenAddressSync(
+          receiptMintPda,
+          backers[backerIdx].publicKey,
+          false,
+          TOKEN_2022_PROGRAM_ID
+        );
+        const metadataPda = getMetaplexMetadataPda(receiptMintPda);
+        const masterEditionPda = getMetaplexMasterEditionPda(receiptMintPda);
+
+        await expect(
+          (projectEscrow.methods as unknown as { mintReceipt: (uri: string) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).mintReceipt(longUri)
+            .accounts({
+              backerWallet: backers[backerIdx].publicKey,
+              project: projectPda,
+              backer: backerPda,
+              receiptAuthority: receiptAuthorityPda,
+              receiptMint: receiptMintPda,
+              backerReceiptAta,
+              metadata: metadataPda,
+              masterEdition: masterEditionPda,
+              tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+              sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+              tokenProgram: TOKEN_2022_PROGRAM_ID,
+              associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([backers[backerIdx]])
+            .rpc()
+        ).to.be.rejectedWith(/MetadataUriTooLong|0x/i);
+      });
     });
 
     it("runs 5 milestone proposals with many voters and quadratic weights", async () => {
@@ -822,10 +1093,6 @@ describe("tastemaker-programs exhaustive", function () {
 
     const MPL_TOKEN_METADATA_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
     const SYSVAR_INSTRUCTIONS_ID = new PublicKey("Sysvar1nstructions1111111111111111111111111");
-    const isProgramDeployed = async (programId: PublicKey): Promise<boolean> => {
-      const accountInfo = await provider.connection.getAccountInfo(programId);
-      return !!accountInfo?.executable;
-    };
 
     it("rejects name/symbol/uri over bounds", async function () {
       if (typeof (rwaToken.methods as { initializeRwaMetadata?: unknown }).initializeRwaMetadata !== "function") {
@@ -903,10 +1170,6 @@ describe("tastemaker-programs exhaustive", function () {
         this.skip();
         return;
       }
-      if (!(await isProgramDeployed(MPL_TOKEN_METADATA_ID))) {
-        this.skip();
-        return;
-      }
       const [metadataGuardPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("rwa_metadata"), projectPda.toBuffer()],
         rwaTokenProgramId
@@ -940,10 +1203,6 @@ describe("tastemaker-programs exhaustive", function () {
         this.skip();
         return;
       }
-      if (!(await isProgramDeployed(MPL_TOKEN_METADATA_ID))) {
-        this.skip();
-        return;
-      }
       const [metadataGuardPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("rwa_metadata"), projectPda.toBuffer()],
         rwaTokenProgramId
@@ -974,6 +1233,56 @@ describe("tastemaker-programs exhaustive", function () {
       ).to.be.rejected;
     });
 
+    it("claim_rwa_tokens fails with wrong receipt mint", async () => {
+      const backerIdx = 0;
+      const [backerPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("backer"), projectPda.toBuffer(), backers[backerIdx].publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      const wrongReceiptMint = getReceiptMintPda(projectPda, backers[1].publicKey, projectEscrowProgramId);
+      const backer0ReceiptAta = getAssociatedTokenAddressSync(
+        getReceiptMintPda(projectPda, backers[backerIdx].publicKey, projectEscrowProgramId),
+        backers[backerIdx].publicKey,
+        false,
+        TOKEN_2022_PROGRAM_ID
+      );
+      const [claimRecordPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("claim"), projectPda.toBuffer(), backers[backerIdx].publicKey.toBuffer()],
+        rwaTokenProgramId
+      );
+      const backerAta = getAssociatedTokenAddressSync(
+        rwaMintPda,
+        backers[backerIdx].publicKey,
+        false,
+        TOKEN_2022_PROGRAM_ID
+      );
+      await expect(
+        rwaToken.methods
+          .claimRwaTokens()
+          .accounts({
+            backer: backers[backerIdx].publicKey,
+            backerAccount: backerPda,
+            project: projectPda,
+            rwaState: rwaStatePda,
+            rwaMint: rwaMintPda,
+            rwaMintAuthority: PublicKey.findProgramAddressSync(
+              [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
+              rwaTokenProgramId
+            )[0],
+            receiptMint: wrongReceiptMint,
+            receiptTokenAccount: backer0ReceiptAta,
+            projectEscrowProgram: projectEscrowProgramId,
+            claimRecord: claimRecordPda,
+            backerTokenAccount: backerAta,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([backers[backerIdx]])
+          .rpc()
+      ).to.be.rejectedWith(/InvalidReceipt|invalid receipt|Constraint|mint|0x/i);
+    });
+
     it("all backers claim RWA tokens", async () => {
       const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(projectPda) as { totalRaised: { toString(): string } };
       const totalRaised = BigInt(project.totalRaised.toString());
@@ -993,6 +1302,13 @@ describe("tastemaker-programs exhaustive", function () {
           false,
           TOKEN_2022_PROGRAM_ID
         );
+        const receiptMintPda = getReceiptMintPda(projectPda, backers[i].publicKey, projectEscrowProgramId);
+        const receiptTokenAccount = getAssociatedTokenAddressSync(
+          receiptMintPda,
+          backers[i].publicKey,
+          false,
+          TOKEN_2022_PROGRAM_ID
+        );
 
         await rwaToken.methods
           .claimRwaTokens()
@@ -1006,6 +1322,9 @@ describe("tastemaker-programs exhaustive", function () {
               [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
               rwaTokenProgramId
             )[0],
+            receiptMint: receiptMintPda,
+            receiptTokenAccount,
+            projectEscrowProgram: projectEscrowProgramId,
             claimRecord: claimRecordPda,
             backerTokenAccount: backerAta,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -1031,6 +1350,8 @@ describe("tastemaker-programs exhaustive", function () {
             expect((record as { claimed: boolean }).claimed).to.be.true;
           }
         }
+        const receiptAtaAfter = await getAccount(provider.connection, receiptTokenAccount);
+        expect(Number(receiptAtaAfter.amount)).to.equal(0);
       }
 
       const state = await (rwaToken.account as Record<string, { fetch: (p: PublicKey) => Promise<{ minted: { toString: () => string }; mintFrozen?: boolean; totalSupply?: { toString: () => string }; authority?: PublicKey }> }>).rwaState.fetch(rwaStatePda);
@@ -1051,6 +1372,246 @@ describe("tastemaker-programs exhaustive", function () {
 
       const state = await (rwaToken.account as Record<string, { fetch: (p: PublicKey) => Promise<{ minted: { toString: () => string }; mintFrozen?: boolean; totalSupply?: { toString: () => string }; authority?: PublicKey }> }>).rwaState.fetch(rwaStatePda);
       expect((state as { mintFrozen: boolean }).mintFrozen).to.be.true;
+    });
+  });
+
+  describe("claim_rwa_tokens_legacy", () => {
+    const legacyArtist = Keypair.generate();
+    let legacyProjectPda: PublicKey;
+    let legacyEscrowPda: PublicKey;
+    let legacyRwaStatePda: PublicKey;
+    let legacyRwaMintPda: PublicKey;
+    const LEGACY_RWA_SUPPLY = 1_000_000n;
+
+    before(async () => {
+      await airdrop(legacyArtist.publicKey);
+      // legacyBackers already have TASTE from main "mints to treasury and to all backers"
+
+      const [artistStatePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("artist_state"), legacyArtist.publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      legacyProjectPda = getProjectPda(legacyArtist.publicKey, 0, projectEscrowProgramId);
+      const [escrowAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("project"), legacyProjectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      legacyEscrowPda = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), legacyProjectPda.toBuffer()],
+        projectEscrowProgramId
+      )[0];
+      const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+      await projectEscrow.methods
+        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .accounts({
+          artist: legacyArtist.publicKey,
+          artistState: artistStatePda,
+          project: legacyProjectPda,
+          escrowAuthority,
+          escrow: legacyEscrowPda,
+          tasteMint,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([legacyArtist])
+        .rpc();
+
+      const platformTreasury = getPlatformTreasuryAta(tasteMint, tasteTokenProgramId);
+      const { authority: burnVaultAuthority, tokenAccount: burnVaultTokenAccount } = getBurnVaultAccounts(tasteMint, projectEscrowProgramId);
+      for (let i = 0; i < legacyBackers.length; i++) {
+        const [backerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("backer"), legacyProjectPda.toBuffer(), legacyBackers[i].publicKey.toBuffer()],
+          projectEscrowProgramId
+        );
+        const backerAta = getAssociatedTokenAddressSync(tasteMint, legacyBackers[i].publicKey, false, TOKEN_2022_PROGRAM_ID);
+        await projectEscrow.methods
+          .fundProject(new anchor.BN(LEGACY_BACKER_AMOUNTS[i].toString()))
+          .accounts({
+            backerWallet: legacyBackers[i].publicKey,
+            project: legacyProjectPda,
+            backer: backerPda,
+            backerTokenAccount: backerAta,
+            escrow: legacyEscrowPda,
+            platformTreasury,
+            burnVaultAuthority,
+            burnVaultTokenAccount,
+            tasteMint,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([legacyBackers[i]])
+          .rpc();
+      }
+
+      const proposalAttemptPda = getProposalAttemptPda(legacyProjectPda, governance.programId);
+      for (let milestone = 0; milestone < 5; milestone++) {
+        const attempt = await getCurrentProposalAttempt(governance, proposalAttemptPda);
+        const proposalPda = getProposalPda(legacyProjectPda, milestone, attempt, governance.programId);
+        await (governance.methods as unknown as { createProposal: (p: PublicKey, m: number, u: string, v: anchor.BN, a: anchor.BN) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).createProposal(
+          legacyProjectPda,
+          milestone,
+          `https://proof.example/legacy-m${milestone}`,
+          VOTING_PERIOD_SECS,
+          new anchor.BN(attempt)
+        )
+          .accounts({
+            artist: legacyArtist.publicKey,
+            proposalAttempt: proposalAttemptPda,
+            proposal: proposalPda,
+            project: legacyProjectPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([legacyArtist])
+          .rpc();
+        for (let i = 0; i < legacyBackers.length; i++) {
+          const [backerPda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("backer"), legacyProjectPda.toBuffer(), legacyBackers[i].publicKey.toBuffer()],
+            projectEscrowProgramId
+          );
+          const [votePda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("vote"), proposalPda.toBuffer(), legacyBackers[i].publicKey.toBuffer()],
+            governanceProgramId
+          );
+          const side = i === 0;
+          await (governance.methods as unknown as { castVote: (s: boolean) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).castVote(side)
+            .accounts({
+              voter: legacyBackers[i].publicKey,
+              backer: backerPda,
+              proposal: proposalPda,
+              vote: votePda,
+              project: legacyProjectPda,
+              escrow: legacyEscrowPda,
+              config: getGovConfigPda(governanceProgramId),
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([legacyBackers[i]])
+            .rpc();
+        }
+        await new Promise((r) => setTimeout(r, SLEEP_MS));
+        const legacyEscrowAuthority = PublicKey.findProgramAddressSync(
+          [Buffer.from("project"), legacyProjectPda.toBuffer()],
+          projectEscrowProgramId
+        )[0];
+        const legacyArtistAta = getAssociatedTokenAddressSync(tasteMint, legacyArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
+        let legacyArtistAtaInfo = await provider.connection.getAccountInfo(legacyArtistAta);
+        if (!legacyArtistAtaInfo) {
+          const tx = new Transaction().add(
+            createAssociatedTokenAccountInstruction(
+              legacyArtist.publicKey,
+              legacyArtistAta,
+              legacyArtist.publicKey,
+              tasteMint,
+              TOKEN_2022_PROGRAM_ID
+            )
+          );
+          await sendAndConfirmTransaction(provider.connection, tx, [legacyArtist]);
+        }
+        const { rwaState: legacyRwaStatePdaPre, rwaMint: legacyRwaMintPdaPre, rwaMintAuthority: legacyRwaMintAuthorityPre } = getRwaPdas(legacyProjectPda, rwaTokenProgramId);
+        await (governance.methods as unknown as { finalizeProposal: () => { accounts: (a: object) => { rpc: () => Promise<string> } } }).finalizeProposal()
+          .accounts({
+            proposal: proposalPda,
+            project: legacyProjectPda,
+            payer: provider.wallet.publicKey,
+            releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
+            escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
+            escrow: legacyEscrowPda,
+            escrowAuthority: legacyEscrowAuthority,
+            artistTokenAccount: legacyArtistAta,
+            tasteMint,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            projectEscrowProgram: projectEscrowProgramId,
+            rwaState: legacyRwaStatePdaPre,
+            rwaMint: legacyRwaMintPdaPre,
+            rwaMintAuthority: legacyRwaMintAuthorityPre,
+            rwaTokenProgram: rwaTokenProgramId,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+      }
+
+      legacyRwaStatePda = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_state"), legacyProjectPda.toBuffer()],
+        rwaTokenProgramId
+      )[0];
+      legacyRwaMintPda = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_mint"), legacyProjectPda.toBuffer()],
+        rwaTokenProgramId
+      )[0];
+      await (rwaToken.methods as unknown as { initializeRwaMint: (s: anchor.BN) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMint(new anchor.BN(LEGACY_RWA_SUPPLY.toString()))
+        .accounts({
+          authority: legacyArtist.publicKey,
+          project: legacyProjectPda,
+          rwaState: legacyRwaStatePda,
+          rwaMint: legacyRwaMintPda,
+          rwaMintAuthority: PublicKey.findProgramAddressSync(
+            [Buffer.from("rwa_mint_authority"), legacyProjectPda.toBuffer()],
+            rwaTokenProgramId
+          )[0],
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([legacyArtist])
+        .rpc();
+    });
+
+    it("backers claim RWA via claim_rwa_tokens_legacy (no receipt)", async () => {
+      const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(legacyProjectPda) as { totalRaised: { toString(): string } };
+      const totalRaised = BigInt(project.totalRaised.toString());
+      for (let i = 0; i < legacyBackers.length; i++) {
+        const [backerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("backer"), legacyProjectPda.toBuffer(), legacyBackers[i].publicKey.toBuffer()],
+          projectEscrowProgramId
+        );
+        const [claimRecordPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), legacyProjectPda.toBuffer(), legacyBackers[i].publicKey.toBuffer()],
+          rwaTokenProgramId
+        );
+        const backerAta = getAssociatedTokenAddressSync(
+          legacyRwaMintPda,
+          legacyBackers[i].publicKey,
+          false,
+          TOKEN_2022_PROGRAM_ID
+        );
+        const ataInfo = await provider.connection.getAccountInfo(backerAta);
+        if (!ataInfo) {
+          const tx = new Transaction().add(
+            createAssociatedTokenAccountInstruction(
+              legacyBackers[i].publicKey,
+              backerAta,
+              legacyBackers[i].publicKey,
+              legacyRwaMintPda,
+              TOKEN_2022_PROGRAM_ID
+            )
+          );
+          await sendAndConfirmTransaction(provider.connection, tx, [legacyBackers[i]]);
+        }
+        await (rwaToken.methods as unknown as { claimRwaTokensLegacy: () => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).claimRwaTokensLegacy()
+          .accounts({
+            backer: legacyBackers[i].publicKey,
+            backerAccount: backerPda,
+            project: legacyProjectPda,
+            rwaState: legacyRwaStatePda,
+            rwaMint: legacyRwaMintPda,
+            rwaMintAuthority: PublicKey.findProgramAddressSync(
+              [Buffer.from("rwa_mint_authority"), legacyProjectPda.toBuffer()],
+              rwaTokenProgramId
+            )[0],
+            claimRecord: claimRecordPda,
+            backerTokenAccount: backerAta,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([legacyBackers[i]])
+          .rpc();
+        const expectedShare = (LEGACY_BACKER_AMOUNTS[i] * LEGACY_RWA_SUPPLY) / totalRaised;
+        if (expectedShare > 0n) {
+          const tokenAccount = await getAccount(provider.connection, backerAta);
+          const amount = typeof tokenAccount.amount === "bigint" ? tokenAccount.amount : BigInt(String(tokenAccount.amount));
+          expect(amount >= expectedShare - 1n).to.be.true;
+        }
+      }
     });
   });
 
@@ -1539,8 +2100,7 @@ describe("tastemaker-programs exhaustive", function () {
       let failed = false;
       let errMsg = "";
       try {
-        await rwaToken.methods
-          .claimRwaTokens()
+        await (rwaToken.methods as unknown as { claimRwaTokensLegacy: () => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).claimRwaTokensLegacy()
           .accounts({
             backer: backer.publicKey,
             backerAccount: backerPda,
@@ -1561,7 +2121,6 @@ describe("tastemaker-programs exhaustive", function () {
         errMsg = (e as Error).message || String(e);
       }
       expect(failed, `Claiming RWA twice should fail but succeeded`).to.be.true;
-      // check error string
       const lowerMsg = errMsg.toLowerCase();
       expect(
         lowerMsg.includes("alreadyclaimed") ||
