@@ -3090,7 +3090,8 @@ describe("tastemaker-programs exhaustive", function () {
           .signers([backers[i]])
           .rpc();
       }
-      await new Promise((r) => setTimeout(r, 4000));
+      // Wait for voting period (3s) to end; use 6s in CI where validator clock can lag
+      await new Promise((r) => setTimeout(r, 6000));
       // create artist ATA
       const rejectArtistAta = getAssociatedTokenAddressSync(tasteMint, rejectArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
       {
@@ -3173,7 +3174,8 @@ describe("tastemaker-programs exhaustive", function () {
           .signers([backers[i]])
           .rpc();
       }
-      await new Promise((r) => setTimeout(r, 4000));
+      // Wait for material-edit voting period (3s) to end; use 6s in CI
+      await new Promise((r) => setTimeout(r, 6000));
       const newTermsHash = Buffer.alloc(32);
       newTermsHash.write("material-edit-terms-hash-v1");
       const releaseAuthorityPda = PublicKey.findProgramAddressSync(
