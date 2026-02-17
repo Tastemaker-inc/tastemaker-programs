@@ -6,6 +6,14 @@
 - Solana CLI
 - Devnet keypair with deploy/upgrade authority for your programs
 
+## Funding the upgrade authority
+
+Deployment and upgrades require SOL on the **upgrade authority** keypair (see `Anchor.toml` `[programs.devnet]` and the keypair used with `--upgrade-authority`). If the balance is 0, `anchor deploy` or `solana program deploy` will fail with "Attempt to debit an account but found no record of a prior credit."
+
+- Check balance: `solana balance --url devnet <UPGRADE_AUTHORITY_PUBKEY>`
+- Airdrop (devnet): `solana airdrop 5 <UPGRADE_AUTHORITY_PUBKEY> --url devnet`
+- Then run the deploy flow below.
+
 ## Deploy flow
 
 1. Verify key + balance:
@@ -47,4 +55,5 @@ After deploying, run these once so devnet can use short voting periods and early
 
 - The web marketplace requires `otc_market` to exist on the target network.
 - Use explicit `--url devnet` and explicit keypair flags in deploy commands.
-- If clients consume new instruction layouts (for example `rwa_token.initialize_rwa_metadata`), re-run `anchor build` and sync updated IDLs in consumer repos before release.
+- If clients consume new instruction layouts (for example `rwa_token.initialize_rwa_metadata`), re-run `anchor build` and sync updated IDLs in consumer repos (e.g. `web/lib/idl/`) before release.
+- **After program changes** (e.g. RWA freeze authority removal, funding cap `GoalExceeded`): deploy to devnet so the web app and tests use the latest behavior. Until the upgrade is applied, existing devnet programs keep the old logic.
