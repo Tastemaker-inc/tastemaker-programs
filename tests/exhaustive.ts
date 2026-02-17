@@ -14,11 +14,13 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import {
+  Connection,
   PublicKey,
   Keypair,
   SystemProgram,
   Transaction,
   sendAndConfirmTransaction,
+  SendTransactionError,
 } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
@@ -27,6 +29,7 @@ import {
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAccount,
+  getMint,
 } from "@solana/spl-token";
 import chai, { expect } from "chai";
 import chaiAsPromised from "chai-as-promised";
@@ -40,7 +43,7 @@ function idlPath(name: string): string {
 }
 const LAMPORTS_PER_TASTE = Math.pow(10, DECIMALS);
 
-const MAX_WALL_CLOCK_MS = 12 * 60 * 1000; // 12 minutes
+const MAX_WALL_CLOCK_MS = 20 * 60 * 1000; // 20 minutes (CI can be slow)
 const watchdogTimer = setTimeout(() => {
   console.error("\n[exhaustive] Wall-clock limit reached (%d min). Exiting to avoid hanging.\n", MAX_WALL_CLOCK_MS / 60000);
   process.exit(1);
@@ -56,6 +59,24 @@ function sqrtU64(x: bigint): bigint {
     z = z / 2n;
   }
   return y;
+}
+
+/** Run fn; on SendTransactionError call getLogs(connection) and rethrow with full logs for CI. */
+async function withTxLogs<T>(connection: Connection, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof SendTransactionError && typeof e.getLogs === "function") {
+      try {
+        const logs = await e.getLogs(connection);
+        throw new Error(`${(e as Error).message}\nFull logs:\n${logs.join("\n")}`);
+      } catch (nested) {
+        if (nested instanceof Error && nested.message.includes("Full logs:")) throw nested;
+        throw e;
+      }
+    }
+    throw e;
+  }
 }
 
 function getProjectPda(artist: PublicKey, projectIndex: number, programId: PublicKey): PublicKey {
@@ -719,16 +740,15 @@ describe("tastemaker-programs exhaustive", function () {
           .signers([backers[backerIdx]])
           .rpc();
 
-        const mintAccountInfo = await provider.connection.getAccountInfo(receiptMintPda);
-        expect(mintAccountInfo).to.not.be.null;
-        expect(mintAccountInfo!.owner.equals(TOKEN_2022_PROGRAM_ID)).to.be.true;
-        const mintData = mintAccountInfo!.data;
-        // SPL Mint layout: mint_authority Option<Pubkey>=33, supply u64=8, decimals u8=1, ...
-        const supply = mintData.readBigUInt64LE(33);
-        const decimals = mintData.readUInt8(41);
-        expect(Number(supply)).to.equal(1);
-        expect(decimals).to.equal(0);
-        const ataInfo = await getAccount(provider.connection, backerReceiptAta);
+        for (let w = 0; w < 10; w++) {
+          const info = await provider.connection.getAccountInfo(receiptMintPda, "confirmed");
+          if (info?.owner.equals(TOKEN_2022_PROGRAM_ID)) break;
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        const mint = await getMint(provider.connection, receiptMintPda, "confirmed", TOKEN_2022_PROGRAM_ID);
+        expect(mint.supply).to.equal(1n);
+        expect(mint.decimals).to.equal(0);
+        const ataInfo = await getAccount(provider.connection, backerReceiptAta, "confirmed", TOKEN_2022_PROGRAM_ID);
         expect(Number(ataInfo.amount)).to.equal(1);
       });
 
@@ -1337,7 +1357,7 @@ describe("tastemaker-programs exhaustive", function () {
         const expectedShare = (backerAmounts[i] * RWA_TOTAL_SUPPLY) / totalRaised;
         if (expectedShare > 0n) {
           try {
-            const tokenAccount = await getAccount(provider.connection, backerAta);
+            const tokenAccount = await getAccount(provider.connection, backerAta, "confirmed", TOKEN_2022_PROGRAM_ID);
             const amount = typeof tokenAccount.amount === "bigint" ? tokenAccount.amount : BigInt(String(tokenAccount.amount));
             expect(amount >= expectedShare - 1n).to.be.true;
           } catch (e) {
@@ -1350,7 +1370,8 @@ describe("tastemaker-programs exhaustive", function () {
             expect((record as { claimed: boolean }).claimed).to.be.true;
           }
         }
-        const receiptAtaAfter = await getAccount(provider.connection, receiptTokenAccount);
+        await new Promise((r) => setTimeout(r, 300));
+        const receiptAtaAfter = await getAccount(provider.connection, receiptTokenAccount, "confirmed", TOKEN_2022_PROGRAM_ID);
         expect(Number(receiptAtaAfter.amount)).to.equal(0);
       }
 
@@ -1381,9 +1402,11 @@ describe("tastemaker-programs exhaustive", function () {
     let legacyEscrowPda: PublicKey;
     let legacyRwaStatePda: PublicKey;
     let legacyRwaMintPda: PublicKey;
-    const LEGACY_RWA_SUPPLY = 1_000_000n;
+    /** Governance inits RWA with this supply on 5th finalizeProposal; use for expectedShare. */
+    const LEGACY_RWA_SUPPLY = 1_000_000n * 1_000_000n;
 
     before(async () => {
+      await withTxLogs(provider.connection, async () => {
       await airdrop(legacyArtist.publicKey);
       // legacyBackers already have TASTE from main "mints to treasury and to all backers"
 
@@ -1473,7 +1496,7 @@ describe("tastemaker-programs exhaustive", function () {
             [Buffer.from("vote"), proposalPda.toBuffer(), legacyBackers[i].publicKey.toBuffer()],
             governanceProgramId
           );
-          const side = i === 0;
+          const side = true; // all legacy backers vote for so every proposal passes and RWA is inited on 5th finalize
           await (governance.methods as unknown as { castVote: (s: boolean) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).castVote(side)
             .accounts({
               voter: legacyBackers[i].publicKey,
@@ -1538,24 +1561,12 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("rwa_mint"), legacyProjectPda.toBuffer()],
         rwaTokenProgramId
       )[0];
-      await (rwaToken.methods as unknown as { initializeRwaMint: (s: anchor.BN) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).initializeRwaMint(new anchor.BN(LEGACY_RWA_SUPPLY.toString()))
-        .accounts({
-          authority: legacyArtist.publicKey,
-          project: legacyProjectPda,
-          rwaState: legacyRwaStatePda,
-          rwaMint: legacyRwaMintPda,
-          rwaMintAuthority: PublicKey.findProgramAddressSync(
-            [Buffer.from("rwa_mint_authority"), legacyProjectPda.toBuffer()],
-            rwaTokenProgramId
-          )[0],
-          tokenProgram: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([legacyArtist])
-        .rpc();
+      // RWA is already initialized by governance on 5th finalizeProposal; do not call initializeRwaMint.
+      });
     });
 
     it("backers claim RWA via claim_rwa_tokens_legacy (no receipt)", async () => {
+      await withTxLogs(provider.connection, async () => {
       const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(legacyProjectPda) as { totalRaised: { toString(): string } };
       const totalRaised = BigInt(project.totalRaised.toString());
       for (let i = 0; i < legacyBackers.length; i++) {
@@ -1605,13 +1616,16 @@ describe("tastemaker-programs exhaustive", function () {
           })
           .signers([legacyBackers[i]])
           .rpc();
-        const expectedShare = (LEGACY_BACKER_AMOUNTS[i] * LEGACY_RWA_SUPPLY) / totalRaised;
+        // Program uses backer.amount (96% to escrow) and project.total_raised; match that for expectedShare.
+        const toEscrow = (LEGACY_BACKER_AMOUNTS[i] * 96n) / 100n;
+        const expectedShare = (toEscrow * LEGACY_RWA_SUPPLY) / totalRaised;
         if (expectedShare > 0n) {
-          const tokenAccount = await getAccount(provider.connection, backerAta);
+          const tokenAccount = await getAccount(provider.connection, backerAta, "confirmed", TOKEN_2022_PROGRAM_ID);
           const amount = typeof tokenAccount.amount === "bigint" ? tokenAccount.amount : BigInt(String(tokenAccount.amount));
           expect(amount >= expectedShare - 1n).to.be.true;
         }
       }
+      });
     });
   });
 

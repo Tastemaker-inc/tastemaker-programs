@@ -465,7 +465,8 @@ pub struct ClaimRwaTokens<'info> {
     #[account(seeds = [b"rwa_mint_authority", rwa_state.project.as_ref()], bump)]
     pub rwa_mint_authority: UncheckedAccount<'info>,
 
-    /// Receipt mint PDA from project_escrow [b"receipt", project, backer]; validated in instruction.
+    /// Receipt mint PDA from project_escrow [b"receipt", project, backer]; validated in instruction. Mut for burn (supply decrement).
+    #[account(mut)]
     pub receipt_mint: InterfaceAccount<'info, Mint>,
 
     /// Backer's token account for the receipt mint; must hold >= 1. Burned in instruction.
