@@ -8,6 +8,8 @@ This folder is the public-facing documentation surface for `tastemaker-programs`
 
 ## Current public docs
 
-- `DEPLOY_DEVNET.md` - public devnet deploy checklist
-- `CI_DEBUG_GUIDE.md` - public CI/debug workflow
-- `OTC_MARKETPLACE.md` - OTC program overview
+| Doc | Covers |
+|-----|--------|
+| `DEPLOY_DEVNET.md` | Deploy and upgrade **all** devnet programs (taste_token, **project_escrow**, governance, otc_market, rwa_token). Upgrade authority, build with devnet feature, and `solana program deploy --program-id` flow. |
+| `CI_DEBUG_GUIDE.md` | Public CI/debug workflow |
+| `OTC_MARKETPLACE.md` | OTC program overview (create/cancel/accept offers; web app hide/notify for claimed IOUs) |
