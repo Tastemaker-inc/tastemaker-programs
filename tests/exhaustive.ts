@@ -21,6 +21,7 @@ import {
   Transaction,
   sendAndConfirmTransaction,
   SendTransactionError,
+  ComputeBudgetProgram,
 } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
@@ -30,6 +31,10 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAccount,
   getMint,
+  createTransferCheckedWithTransferHookInstruction,
+  createTransferCheckedInstruction,
+  createReallocateInstruction,
+  ExtensionType,
 } from "@solana/spl-token";
 import chai, { expect } from "chai";
 import chaiAsPromised from "chai-as-promised";
@@ -111,6 +116,61 @@ function getGovConfigPda(governanceProgramId: PublicKey): PublicKey {
   )[0];
 }
 
+const MPL_TOKEN_METADATA_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+const SYSVAR_INSTRUCTIONS_ID = new PublicKey("Sysvar1nstructions1111111111111111111111111");
+
+// When run via scripts/run-test-full.sh, this is set to the deployed hook's program ID (from keypair).
+// Fallback to Anchor.toml localnet ID for direct anchor test when hook is pre-deployed at that address.
+const RWA_TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
+  process.env.RWA_TRANSFER_HOOK_PROGRAM_ID || "56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn"
+);
+
+function getRwaConfigPda(rwaTokenProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("rwa_config")],
+    rwaTokenProgramId
+  )[0];
+}
+
+function getRwaExtraAccountMetasPda(rwaMint: PublicKey, transferHookProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("extra-account-metas"), rwaMint.toBuffer()],
+    transferHookProgramId
+  )[0];
+}
+
+function getRevConfigPda(project: PublicKey, revenueDistributionProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("rev_config"), project.toBuffer()],
+    revenueDistributionProgramId
+  )[0];
+}
+
+function getRevVaultAuthorityPda(project: PublicKey, revenueDistributionProgramId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("rev_vault"), project.toBuffer()],
+    revenueDistributionProgramId
+  )[0];
+}
+
+function getDistributionEpochPda(project: PublicKey, epochIndex: number, revenueDistributionProgramId: PublicKey): PublicKey {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(BigInt(epochIndex));
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("epoch"), project.toBuffer(), buf],
+    revenueDistributionProgramId
+  )[0];
+}
+
+function getHolderClaimPda(project: PublicKey, epochIndex: number, holder: PublicKey, revenueDistributionProgramId: PublicKey): PublicKey {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(BigInt(epochIndex));
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("holder_claim"), project.toBuffer(), buf, holder.toBuffer()],
+    revenueDistributionProgramId
+  )[0];
+}
+
 function getRwaPdas(projectPda: PublicKey, rwaTokenProgramId: PublicKey) {
   const [rwaState] = PublicKey.findProgramAddressSync(
     [Buffer.from("rwa_state"), projectPda.toBuffer()],
@@ -124,7 +184,17 @@ function getRwaPdas(projectPda: PublicKey, rwaTokenProgramId: PublicKey) {
     [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
     rwaTokenProgramId
   );
-  return { rwaState, rwaMint, rwaMintAuthority };
+  const [rwaMetadataGuard] = PublicKey.findProgramAddressSync(
+    [Buffer.from("rwa_metadata"), projectPda.toBuffer()],
+    rwaTokenProgramId
+  );
+  const [rwaMetadata] = PublicKey.findProgramAddressSync(
+    [Buffer.from("metadata"), MPL_TOKEN_METADATA_ID.toBuffer(), rwaMint.toBuffer()],
+    MPL_TOKEN_METADATA_ID
+  );
+  const rwaConfig = getRwaConfigPda(rwaTokenProgramId);
+  const rwaExtraAccountMetas = getRwaExtraAccountMetasPda(rwaMint, RWA_TRANSFER_HOOK_PROGRAM_ID);
+  return { rwaState, rwaMint, rwaMintAuthority, rwaMetadataGuard, rwaMetadata, rwaConfig, rwaExtraAccountMetas };
 }
 
 function getVoteWeightPda(project: PublicKey, projectEscrowProgramId: PublicKey): PublicKey {
@@ -225,16 +295,19 @@ describe("tastemaker-programs exhaustive", function () {
   const projectEscrowIdl = require(idlPath("project_escrow"));
   const governanceIdl = require(idlPath("governance"));
   const rwaTokenIdl = require(idlPath("rwa_token"));
+  const revenueDistributionIdl = require(idlPath("revenue_distribution"));
 
   const tasteTokenProgramId = new PublicKey(tasteTokenIdl.address);
   const projectEscrowProgramId = new PublicKey(projectEscrowIdl.address);
   const governanceProgramId = new PublicKey(governanceIdl.address);
   const rwaTokenProgramId = new PublicKey(rwaTokenIdl.address);
+  const revenueDistributionProgramId = new PublicKey(revenueDistributionIdl.address);
 
   let tasteToken: Program;
   let projectEscrow: Program;
   let governance: Program;
   let rwaToken: Program;
+  let revenueDistribution: Program;
 
   let tasteMint: PublicKey;
   let treasuryAuthority: PublicKey;
@@ -246,6 +319,7 @@ describe("tastemaker-programs exhaustive", function () {
   const LEGACY_BACKER_AMOUNTS = [1_000_000n * BigInt(LAMPORTS_PER_TASTE), 2_000_000n * BigInt(LAMPORTS_PER_TASTE)];
   let cancelProposalBacker: Keypair;
   let cancelBacker: Keypair;
+  const twoMilestoneBackers = [Keypair.generate(), Keypair.generate()];
 
   const MILESTONES = [20, 20, 20, 20, 20] as [number, number, number, number, number];
   const GOAL = 50_000_000n * BigInt(LAMPORTS_PER_TASTE);
@@ -275,10 +349,25 @@ describe("tastemaker-programs exhaustive", function () {
   }
 
   before(async () => {
+    // Sanity: ensure IDL has artist as signer for finalize_proposal (CPI signer rule). Stale IDL => rebuild.
+    const fp = (governanceIdl as { instructions?: { name: string; accounts?: { name: string; signer?: boolean }[] } }).instructions?.find((ix) => ix.name === "finalize_proposal");
+    const artistAcc = fp?.accounts?.find((a) => a.name === "artist");
+    if (!artistAcc?.signer) {
+      throw new Error("governance IDL: finalize_proposal.artist must have signer: true. Rebuild with: anchor build (and run test via npm run test:full)");
+    }
+
     tasteToken = new Program(tasteTokenIdl, provider);
     projectEscrow = new Program(projectEscrowIdl, provider);
     governance = new Program(governanceIdl, provider);
     rwaToken = new Program(rwaTokenIdl, provider);
+    revenueDistribution = new Program(revenueDistributionIdl, provider);
+
+    // Derive taste_mint PDA so tasteMint is always set for tests that run in isolation (e.g. --grep).
+    const [mintPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("taste_mint")],
+      tasteTokenProgramId
+    );
+    tasteMint = mintPda;
 
     await airdrop(provider.wallet.publicKey, 10e9);
 
@@ -297,6 +386,7 @@ describe("tastemaker-programs exhaustive", function () {
     cancelBacker = Keypair.generate();
     await airdrop(cancelBacker.publicKey);
     for (const b of legacyBackers) await airdrop(b.publicKey);
+    for (const b of twoMilestoneBackers) await airdrop(b.publicKey);
   });
 
   describe("project_escrow config", () => {
@@ -381,6 +471,27 @@ describe("tastemaker-programs exhaustive", function () {
             config: govConfigPda,
             programAccount: governanceProgramId,
             programDataAccount: getProgramDataAddress(governanceProgramId),
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+      } catch (e: unknown) {
+        const msg = (e as Error).message ?? String(e);
+        if (!/already in use|AccountAlreadyInitialized|0x0|custom program error: 0x0/i.test(msg)) throw e;
+      }
+    });
+  });
+
+  describe("rwa_token config", () => {
+    it("initializes RwaConfig with transfer hook program (upgrade authority)", async () => {
+      const rwaConfigPda = getRwaConfigPda(rwaTokenProgramId);
+      try {
+        await (rwaToken.methods as unknown as { initializeRwaConfig: (id: PublicKey) => { accounts: (acc: Record<string, unknown>) => { rpc: () => Promise<string> } } })
+          .initializeRwaConfig(RWA_TRANSFER_HOOK_PROGRAM_ID)
+          .accounts({
+            authority: provider.wallet.publicKey,
+            rwaConfig: rwaConfigPda,
+            programAccount: rwaTokenProgramId,
+            programDataAccount: getProgramDataAddress(rwaTokenProgramId),
             systemProgram: SystemProgram.programId,
           })
           .rpc();
@@ -498,6 +609,26 @@ describe("tastemaker-programs exhaustive", function () {
             mintAuthority: provider.wallet.publicKey,
             mint: tasteMint,
             recipient: backerAta,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+          })
+          .rpc();
+      }
+      // Two-milestone test backers: create ATAs and mint TASTE (before freeze_mint_authority)
+      for (const b of twoMilestoneBackers) {
+        const ata = getAssociatedTokenAddressSync(tasteMint, b.publicKey, false, TOKEN_2022_PROGRAM_ID);
+        const info = await provider.connection.getAccountInfo(ata);
+        if (!info) {
+          const tx = new Transaction().add(
+            createAssociatedTokenAccountInstruction(b.publicKey, ata, b.publicKey, tasteMint, TOKEN_2022_PROGRAM_ID)
+          );
+          await sendAndConfirmTransaction(provider.connection, tx, [b]);
+        }
+        await tasteToken.methods
+          .mintTo(new anchor.BN((1_000_000n * BigInt(LAMPORTS_PER_TASTE)).toString()))
+          .accounts({
+            mintAuthority: provider.wallet.publicKey,
+            mint: tasteMint,
+            recipient: ata,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .rpc();
@@ -630,7 +761,7 @@ describe("tastemaker-programs exhaustive", function () {
       )[0];
 
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: artist.publicKey,
           artistState: artistStatePda,
@@ -703,7 +834,8 @@ describe("tastemaker-programs exhaustive", function () {
         )[0];
       }
 
-      it("mint_receipt for first backer", async () => {
+      it("mint_receipt for first backer", async function () {
+        this.timeout(60_000); // 1 min max
         const metadataUri = "https://example.com/receipt-metadata.json";
         const backerIdx = 0;
         const [backerPda] = PublicKey.findProgramAddressSync(
@@ -752,10 +884,15 @@ describe("tastemaker-programs exhaustive", function () {
         expect(Number(ataInfo.amount)).to.equal(1);
       });
 
-      it("mint_receipt for all backers", async () => {
+      it("mint_receipt for all backers", async function () {
+        this.timeout(180_000); // 3 min max; if longer, RPC or validator is stuck
+        // 39 sequential RPCs (backer 0 already has receipt). Log progress so long runs are visible.
         const metadataUri = "https://example.com/receipt-metadata.json";
+        const total = backers.length - 1;
         for (let i = 1; i < backers.length; i++) {
-          // backer 0 already has receipt from previous test
+          if (i % 5 === 0 || i === 1) {
+            process.stdout.write(`    mint_receipt backer ${i}/${total}...\n`);
+          }
           const [backerPda] = PublicKey.findProgramAddressSync(
             [Buffer.from("backer"), projectPda.toBuffer(), backers[i].publicKey.toBuffer()],
             projectEscrowProgramId
@@ -949,6 +1086,9 @@ describe("tastemaker-programs exhaustive", function () {
             project: projectPda,
             systemProgram: SystemProgram.programId,
           })
+          .remainingAccounts([
+            { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+          ])
           .signers([artist])
           .rpc();
 
@@ -1010,10 +1150,10 @@ describe("tastemaker-programs exhaustive", function () {
           projectEscrowProgramId
         );
 
-        const { rwaState, rwaMint, rwaMintAuthority } = getRwaPdas(projectPda, rwaTokenProgramId);
-        await governance.methods
+        const { rwaState, rwaMint, rwaMintAuthority, rwaConfig, rwaExtraAccountMetas, rwaMetadataGuard, rwaMetadata } = getRwaPdas(projectPda, rwaTokenProgramId);
+        const finalizeBuilder = governance.methods
           .finalizeProposal()
-          .accounts({
+          .accountsStrict({
             proposal: proposalPda,
             project: projectPda,
             payer: provider.wallet.publicKey,
@@ -1028,10 +1168,21 @@ describe("tastemaker-programs exhaustive", function () {
             rwaState,
             rwaMint,
             rwaMintAuthority,
+            rwaConfig,
+            rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+            rwaExtraAccountMetas,
+            rwaMetadataGuard,
+            rwaMetadata,
+            artist: artist.publicKey,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
             rwaTokenProgram: rwaTokenProgramId,
             systemProgram: SystemProgram.programId,
           })
-          .rpc();
+          .signers([artist]);
+        const finalizeTx = await finalizeBuilder.transaction();
+        finalizeTx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+        await provider.sendAndConfirm(finalizeTx, [artist]);
 
         const proposalAfter = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(proposalPda) as { status: Record<string, unknown> };
         expect(
@@ -1042,6 +1193,185 @@ describe("tastemaker-programs exhaustive", function () {
       const projectAfter = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(projectPda) as { currentMilestone: number; status: Record<string, unknown> };
       expect(projectAfter.currentMilestone).to.equal(5);
       expect("completed" in projectAfter.status).to.be.true;
+    });
+  });
+
+  describe("variable milestones 1-5", () => {
+    const twoMilestoneArtist = Keypair.generate();
+    const TWO_MILESTONE_AMOUNTS = [500_000n * BigInt(LAMPORTS_PER_TASTE), 500_000n * BigInt(LAMPORTS_PER_TASTE)];
+    const TWO_MILESTONE_GOAL = 1_000_000n * BigInt(LAMPORTS_PER_TASTE);
+    const TWO_MILESTONES = [50, 50, 0, 0, 0] as [number, number, number, number, number];
+
+    it("2-milestone project completes after 2 releases and RWA is initialized", async () => {
+      await airdrop(twoMilestoneArtist.publicKey);
+      for (const b of twoMilestoneBackers) await airdrop(b.publicKey);
+
+      const [artistStatePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("artist_state"), twoMilestoneArtist.publicKey.toBuffer()],
+        projectEscrowProgramId
+      );
+      const twoMilestoneProjectPda = getProjectPda(twoMilestoneArtist.publicKey, 0, projectEscrowProgramId);
+      const [escrowAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("project"), twoMilestoneProjectPda.toBuffer()],
+        projectEscrowProgramId
+      );
+      const twoMilestoneEscrowPda = PublicKey.findProgramAddressSync(
+        [Buffer.from("escrow"), twoMilestoneProjectPda.toBuffer()],
+        projectEscrowProgramId
+      )[0];
+      const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+
+      await projectEscrow.methods
+        .createProject("Two Milestone", new anchor.BN(TWO_MILESTONE_GOAL.toString()), TWO_MILESTONES, deadline)
+        .accounts({
+          artist: twoMilestoneArtist.publicKey,
+          artistState: artistStatePda,
+          project: twoMilestoneProjectPda,
+          escrowAuthority,
+          escrow: twoMilestoneEscrowPda,
+          tasteMint,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([twoMilestoneArtist])
+        .rpc();
+
+      const platformTreasury = getPlatformTreasuryAta(tasteMint, tasteTokenProgramId);
+      const { authority: burnVaultAuthority, tokenAccount: burnVaultTokenAccount } = getBurnVaultAccounts(tasteMint, projectEscrowProgramId);
+      for (let i = 0; i < twoMilestoneBackers.length; i++) {
+        const [backerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("backer"), twoMilestoneProjectPda.toBuffer(), twoMilestoneBackers[i].publicKey.toBuffer()],
+          projectEscrowProgramId
+        );
+        const backerAta = getAssociatedTokenAddressSync(tasteMint, twoMilestoneBackers[i].publicKey, false, TOKEN_2022_PROGRAM_ID);
+        await projectEscrow.methods
+          .fundProject(new anchor.BN(TWO_MILESTONE_AMOUNTS[i].toString()))
+          .accounts({
+            backerWallet: twoMilestoneBackers[i].publicKey,
+            project: twoMilestoneProjectPda,
+            backer: backerPda,
+            backerTokenAccount: backerAta,
+            escrow: twoMilestoneEscrowPda,
+            platformTreasury,
+            burnVaultAuthority,
+            burnVaultTokenAccount,
+            tasteMint,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([twoMilestoneBackers[i]])
+          .rpc();
+      }
+
+      const proposalAttemptPda = getProposalAttemptPda(twoMilestoneProjectPda, governance.programId);
+      for (let milestone = 0; milestone < 2; milestone++) {
+        const attempt = await getCurrentProposalAttempt(governance, proposalAttemptPda);
+        const proposalPda = getProposalPda(twoMilestoneProjectPda, milestone, attempt, governance.programId);
+        await (governance.methods as unknown as { createProposal: (p: PublicKey, m: number, u: string, v: anchor.BN, a: anchor.BN) => { accounts: (a: object) => { remainingAccounts: (r: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[]) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } } }).createProposal(
+          twoMilestoneProjectPda,
+          milestone,
+          `https://proof.example/two-m${milestone}`,
+          VOTING_PERIOD_SECS,
+          new anchor.BN(attempt)
+        )
+          .accounts({
+            artist: twoMilestoneArtist.publicKey,
+            proposalAttempt: proposalAttemptPda,
+            proposal: proposalPda,
+            project: twoMilestoneProjectPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .remainingAccounts([
+            { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+          ])
+          .signers([twoMilestoneArtist])
+          .rpc();
+
+        for (let i = 0; i < twoMilestoneBackers.length; i++) {
+          const [backerPda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("backer"), twoMilestoneProjectPda.toBuffer(), twoMilestoneBackers[i].publicKey.toBuffer()],
+            projectEscrowProgramId
+          );
+          const [votePda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("vote"), proposalPda.toBuffer(), twoMilestoneBackers[i].publicKey.toBuffer()],
+            governanceProgramId
+          );
+          await (governance.methods as unknown as { castVote: (s: boolean) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).castVote(true)
+            .accounts({
+              voter: twoMilestoneBackers[i].publicKey,
+              proposal: proposalPda,
+              backer: backerPda,
+              vote: votePda,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([twoMilestoneBackers[i]])
+            .rpc();
+        }
+
+        await new Promise((r) => setTimeout(r, SLEEP_MS));
+
+        const twoMilestoneArtistAta = getAssociatedTokenAddressSync(tasteMint, twoMilestoneArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
+        let artistAtaInfo = await provider.connection.getAccountInfo(twoMilestoneArtistAta);
+        if (!artistAtaInfo) {
+          const tx = new Transaction().add(
+            createAssociatedTokenAccountInstruction(
+              twoMilestoneArtist.publicKey,
+              twoMilestoneArtistAta,
+              twoMilestoneArtist.publicKey,
+              tasteMint,
+              TOKEN_2022_PROGRAM_ID
+            )
+          );
+          await sendAndConfirmTransaction(provider.connection, tx, [twoMilestoneArtist]);
+        }
+
+        const { rwaState, rwaMint, rwaMintAuthority, rwaConfig, rwaExtraAccountMetas, rwaMetadataGuard, rwaMetadata } = getRwaPdas(twoMilestoneProjectPda, rwaTokenProgramId);
+        const twoMsFinalizeBuilder = governance.methods
+          .finalizeProposal()
+          .accountsStrict({
+            proposal: proposalPda,
+            project: twoMilestoneProjectPda,
+            payer: provider.wallet.publicKey,
+            releaseAuthority: PublicKey.findProgramAddressSync([Buffer.from("release_authority")], governanceProgramId)[0],
+            escrowConfig: getEscrowConfigPda(projectEscrowProgramId),
+            escrow: twoMilestoneEscrowPda,
+            escrowAuthority,
+            artistTokenAccount: twoMilestoneArtistAta,
+            tasteMint,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            projectEscrowProgram: projectEscrowProgramId,
+            rwaState,
+            rwaMint,
+            rwaMintAuthority,
+            rwaConfig,
+            rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+            rwaExtraAccountMetas,
+            rwaMetadataGuard,
+            rwaMetadata,
+            artist: twoMilestoneArtist.publicKey,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+            rwaTokenProgram: rwaTokenProgramId,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([twoMilestoneArtist]);
+        const twoMsFinalizeTx = await twoMsFinalizeBuilder.transaction();
+        twoMsFinalizeTx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+        await provider.sendAndConfirm(twoMsFinalizeTx, [twoMilestoneArtist]);
+      }
+
+      const projectAfter = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(twoMilestoneProjectPda) as { currentMilestone: number; status: Record<string, unknown> };
+      expect(projectAfter.currentMilestone).to.equal(2);
+      expect("completed" in projectAfter.status).to.be.true;
+
+      const [rwaStatePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_state"), twoMilestoneProjectPda.toBuffer()],
+        rwaTokenProgramId
+      );
+      const rwaStateInfo = await provider.connection.getAccountInfo(rwaStatePda);
+      expect(rwaStateInfo).to.not.be.null;
+      expect(rwaStateInfo!.owner.equals(rwaTokenProgramId)).to.be.true;
     });
   });
 
@@ -1066,17 +1396,21 @@ describe("tastemaker-programs exhaustive", function () {
     it("artist initializes RWA mint for project (or already inited by governance)", async () => {
       const rwaStateInfo = await provider.connection.getAccountInfo(rwaStatePda);
       if (!rwaStateInfo || rwaStateInfo.lamports === 0) {
+        const { rwaConfig, rwaExtraAccountMetas } = getRwaPdas(projectPda, rwaTokenProgramId);
         await rwaToken.methods
           .initializeRwaMint(new anchor.BN(RWA_TOTAL_SUPPLY.toString()))
-          .accounts({
+          .accountsStrict({
             authority: artist.publicKey,
             project: projectPda,
             rwaState: rwaStatePda,
+            rwaConfig,
             rwaMint: rwaMintPda,
             rwaMintAuthority: PublicKey.findProgramAddressSync(
               [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
               rwaTokenProgramId
             )[0],
+            rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+            extraAccountMetas: rwaExtraAccountMetas,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
@@ -1089,20 +1423,24 @@ describe("tastemaker-programs exhaustive", function () {
     });
 
     it("initialize_rwa_mint_by_governance rejects when signer is not release authority", async () => {
+      const { rwaConfig, rwaExtraAccountMetas } = getRwaPdas(projectPda, rwaTokenProgramId);
       await expect(
         rwaToken.methods
           .initializeRwaMintByGovernance(new anchor.BN(Number(RWA_TOTAL_SUPPLY)))
-          .accounts({
+          .accountsStrict({
             payer: artist.publicKey,
             releaseAuthority: artist.publicKey,
             config: getEscrowConfigPda(projectEscrowProgramId),
             project: projectPda,
             rwaState: rwaStatePda,
+            rwaConfig,
             rwaMint: rwaMintPda,
             rwaMintAuthority: PublicKey.findProgramAddressSync(
               [Buffer.from("rwa_mint_authority"), projectPda.toBuffer()],
               rwaTokenProgramId
             )[0],
+            rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+            extraAccountMetas: rwaExtraAccountMetas,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
@@ -1194,6 +1532,12 @@ describe("tastemaker-programs exhaustive", function () {
         [Buffer.from("rwa_metadata"), projectPda.toBuffer()],
         rwaTokenProgramId
       );
+      const guardAlready = await provider.connection.getAccountInfo(metadataGuardPda);
+      if (guardAlready) {
+        // Governance already created metadata during finalize_proposal; skip standalone init.
+        this.skip();
+        return;
+      }
       const [metadataPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("metadata"), MPL_TOKEN_METADATA_ID.toBuffer(), rwaMintPda.toBuffer()],
         MPL_TOKEN_METADATA_ID
@@ -1381,6 +1725,136 @@ describe("tastemaker-programs exhaustive", function () {
       expect(minted <= RWA_TOTAL_SUPPLY + 100n).to.be.true;
     });
 
+    it("initialize_rwa_rights happy path", async function () {
+      if (typeof (rwaToken.methods as { initializeRwaRights?: unknown }).initializeRwaRights !== "function") {
+        this.skip();
+        return;
+      }
+      const [rwaRightsPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_rights"), projectPda.toBuffer()],
+        rwaTokenProgramId
+      );
+      try {
+        await (rwaToken.methods as unknown as {
+          initializeRwaRights: (a: { masterRecording?: unknown }, b: number, c: number, d: anchor.BN, e: anchor.BN, f: number[], g: string, h: string) => { accounts: (acc: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } };
+        }).initializeRwaRights(
+          { masterRecording: {} },
+          5000,
+          5000,
+          new anchor.BN(365 * 24 * 3600),
+          new anchor.BN(0),
+          new Array(32).fill(0),
+          "https://terms.example",
+          "US"
+        )
+          .accounts({
+            authority: artist.publicKey,
+            rwaState: rwaStatePda,
+            rwaRights: rwaRightsPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([artist])
+          .rpc();
+      } catch (e: unknown) {
+        const msg = (e as Error).message ?? String(e);
+        if (!/already in use|AccountAlreadyInitialized|0x0|custom program error: 0x0/i.test(msg)) throw e;
+      }
+    });
+
+    it("initialize_rwa_rights rejects split > 10000 bps", async function () {
+      if (typeof (rwaToken.methods as { initializeRwaRights?: unknown }).initializeRwaRights !== "function") {
+        this.skip();
+        return;
+      }
+      const [rwaRightsPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_rights"), projectPda.toBuffer()],
+        rwaTokenProgramId
+      );
+      await expect(
+        (rwaToken.methods as unknown as {
+          initializeRwaRights: (a: { masterRecording?: unknown }, b: number, c: number, d: anchor.BN, e: anchor.BN, f: number[], g: string, h: string) => { accounts: (acc: object) => { signers: (s: anchor.web3.Keypair[]) => { rpc: () => Promise<string> } } };
+        }).initializeRwaRights(
+          { masterRecording: {} },
+          6000,
+          5000,
+          new anchor.BN(365 * 24 * 3600),
+          new anchor.BN(0),
+          new Array(32).fill(0),
+          "https://terms.example",
+          "US"
+        )
+          .accounts({
+            authority: artist.publicKey,
+            rwaState: rwaStatePda,
+            rwaRights: rwaRightsPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([artist])
+          .rpc()
+      ).to.be.rejectedWith(/InvalidSplit|invalid split|0x|Constraint/i);
+    });
+
+    it("rwa_transfer_hook pass-through transfer succeeds", async () => {
+      const RWA_DECIMALS = 6;
+      const sourceHolder = backers[backers.length - 1];
+      const destHolder = backers[backers.length - 2];
+      const sourceAta = getAssociatedTokenAddressSync(rwaMintPda, sourceHolder.publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const destAta = getAssociatedTokenAddressSync(rwaMintPda, destHolder.publicKey, false, TOKEN_2022_PROGRAM_ID);
+      let destInfo = await provider.connection.getAccountInfo(destAta);
+      if (!destInfo) {
+        const tx = new Transaction().add(
+          createAssociatedTokenAccountInstruction(destHolder.publicKey, destAta, destHolder.publicKey, rwaMintPda, TOKEN_2022_PROGRAM_ID)
+        );
+        await sendAndConfirmTransaction(provider.connection, tx, [destHolder]);
+      }
+
+      // Token-2022 TransferChecked on mints with TransferHook requires the
+      // TransferHookAccount extension on source/dest. The ATA program may not
+      // add it automatically; Reallocate is idempotent (skips if already present).
+      const reallocTx = new Transaction()
+        .add(createReallocateInstruction(sourceAta, sourceHolder.publicKey, [ExtensionType.TransferHookAccount], sourceHolder.publicKey, [], TOKEN_2022_PROGRAM_ID))
+        .add(createReallocateInstruction(destAta, destHolder.publicKey, [ExtensionType.TransferHookAccount], destHolder.publicKey, [], TOKEN_2022_PROGRAM_ID));
+      await sendAndConfirmTransaction(provider.connection, reallocTx, [sourceHolder, destHolder]);
+
+      const sourceBefore = (await getAccount(provider.connection, sourceAta, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      const destBefore = (await getAccount(provider.connection, destAta, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      const transferAmount = 1000n * 10n ** BigInt(RWA_DECIMALS);
+      expect(BigInt(sourceBefore) >= transferAmount).to.be.true;
+
+      // Build TransferChecked and manually append the transfer hook's extra-account-metas
+      // PDA + the hook program. The helper createTransferCheckedWithTransferHookInstruction
+      // silently skips adding these if the extra-account-metas PDA fetch returns null (timing).
+      const extraAccountMetasPda = getRwaExtraAccountMetasPda(rwaMintPda, RWA_TRANSFER_HOOK_PROGRAM_ID);
+      let ix = await createTransferCheckedWithTransferHookInstruction(
+        provider.connection,
+        sourceAta,
+        rwaMintPda,
+        destAta,
+        sourceHolder.publicKey,
+        transferAmount,
+        RWA_DECIMALS,
+        [],
+        "confirmed",
+        TOKEN_2022_PROGRAM_ID
+      );
+      // Verify the helper added the hook program; if not, add manually (pass-through hook).
+      // Order: extra-account-metas PDA (validation account), then hook program.
+      const hasHookProgram = ix.keys.some(k => k.pubkey.equals(RWA_TRANSFER_HOOK_PROGRAM_ID));
+      if (!hasHookProgram) {
+        ix.keys.push({ pubkey: extraAccountMetasPda, isSigner: false, isWritable: false });
+        ix.keys.push({ pubkey: RWA_TRANSFER_HOOK_PROGRAM_ID, isSigner: false, isWritable: false });
+      }
+
+      await sendAndConfirmTransaction(
+        provider.connection, new Transaction().add(ix), [sourceHolder],
+        { commitment: "confirmed", preflightCommitment: "confirmed" },
+      );
+      const sourceAfter = (await getAccount(provider.connection, sourceAta, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      const destAfter = (await getAccount(provider.connection, destAta, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      expect(BigInt(sourceAfter)).to.equal(BigInt(sourceBefore) - transferAmount);
+      expect(BigInt(destAfter)).to.equal(BigInt(destBefore) + transferAmount);
+    });
+
     it("authority closes distribution (freezes mint)", async () => {
       await rwaToken.methods
         .closeDistribution()
@@ -1396,6 +1870,188 @@ describe("tastemaker-programs exhaustive", function () {
     });
   });
 
+  describe("revenue_distribution", () => {
+    let projectPda: PublicKey;
+    let rwaStatePda: PublicKey;
+    let rwaMintPda: PublicKey;
+
+    before(() => {
+      projectPda = getProjectPda(artist.publicKey, 0, projectEscrowProgramId);
+      [rwaStatePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_state"), projectPda.toBuffer()],
+        rwaTokenProgramId
+      );
+      [rwaMintPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("rwa_mint"), projectPda.toBuffer()],
+        rwaTokenProgramId
+      );
+    });
+
+    it("initialize_revenue_config", async () => {
+      const revConfigPda = getRevConfigPda(projectPda, revenueDistributionProgramId);
+      const revVaultAuthorityPda = getRevVaultAuthorityPda(projectPda, revenueDistributionProgramId);
+      const revVault = getAssociatedTokenAddressSync(tasteMint, revVaultAuthorityPda, true, TOKEN_2022_PROGRAM_ID);
+      try {
+        await revenueDistribution.methods
+          .initializeRevenueConfig()
+          .accounts({
+            payer: provider.wallet.publicKey,
+            project: projectPda,
+            rwaState: rwaStatePda,
+            revConfig: revConfigPda,
+            rwaMint: rwaMintPda,
+            revVaultAuthority: revVaultAuthorityPda,
+            revVault,
+            tasteMint,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+      } catch (e: unknown) {
+        const msg = (e as Error).message ?? String(e);
+        if (!/already in use|AccountAlreadyInitialized|0x0/i.test(msg)) throw e;
+      }
+    });
+
+    it("deposit_revenue", async () => {
+      const revConfigPda = getRevConfigPda(projectPda, revenueDistributionProgramId);
+      const revVaultAuthorityPda = getRevVaultAuthorityPda(projectPda, revenueDistributionProgramId);
+      const revVault = getAssociatedTokenAddressSync(tasteMint, revVaultAuthorityPda, true, TOKEN_2022_PROGRAM_ID);
+      const artistAta = getAssociatedTokenAddressSync(tasteMint, artist.publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const config = await (revenueDistribution.account as Record<string, { fetch: (p: PublicKey) => Promise<{ epochCount: { toString: () => string } }> }>).revenueConfig.fetch(revConfigPda) as { epochCount: { toString: () => string } };
+      const epochIndex = Number(config.epochCount.toString());
+      const distributionEpochPda = getDistributionEpochPda(projectPda, epochIndex, revenueDistributionProgramId);
+      const depositAmount = 100_000 * LAMPORTS_PER_TASTE;
+      const artistBalanceBefore = (await getAccount(provider.connection, artistAta, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      if (Number(artistBalanceBefore) < depositAmount) {
+        await tasteToken.methods
+          .mintTo(new anchor.BN(depositAmount.toString()))
+          .accounts({
+            mintAuthority: provider.wallet.publicKey,
+            mint: tasteMint,
+            recipient: artistAta,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+          })
+          .rpc();
+      }
+      await revenueDistribution.methods
+        .depositRevenue(new anchor.BN(depositAmount))
+        .accounts({
+          artistAuthority: artist.publicKey,
+          revConfig: revConfigPda,
+          project: projectPda,
+          rwaState: rwaStatePda,
+          distributionEpoch: distributionEpochPda,
+          artistSource: artistAta,
+          revVault,
+          revVaultAuthority: revVaultAuthorityPda,
+          tasteMint,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([artist])
+        .rpc();
+      const epoch = await (revenueDistribution.account as Record<string, { fetch: (p: PublicKey) => Promise<{ amount: { toString: () => string }; totalRwaSupply: { toString: () => string } }> }>).distributionEpoch.fetch(distributionEpochPda) as { amount: { toString: () => string }; totalRwaSupply: { toString: () => string } };
+      expect(Number(epoch.amount.toString())).to.equal(depositAmount);
+      expect(Number(epoch.totalRwaSupply.toString())).to.be.greaterThan(0);
+    });
+
+    it("claim_revenue", async () => {
+      const revConfigPda = getRevConfigPda(projectPda, revenueDistributionProgramId);
+      const revVaultAuthorityPda = getRevVaultAuthorityPda(projectPda, revenueDistributionProgramId);
+      const revVault = getAssociatedTokenAddressSync(tasteMint, revVaultAuthorityPda, true, TOKEN_2022_PROGRAM_ID);
+      const config = await (revenueDistribution.account as Record<string, { fetch: (p: PublicKey) => Promise<{ epochCount: { toString: () => string } }> }>).revenueConfig.fetch(revConfigPda) as { epochCount: { toString: () => string } };
+      const epochIndex = Number(config.epochCount.toString()) - 1;
+      const distributionEpochPda = getDistributionEpochPda(projectPda, epochIndex, revenueDistributionProgramId);
+      const holder = backers[0];
+      const holderRwaAta = getAssociatedTokenAddressSync(rwaMintPda, holder.publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const holderDest = getAssociatedTokenAddressSync(tasteMint, holder.publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const holderClaimPda = getHolderClaimPda(projectPda, epochIndex, holder.publicKey, revenueDistributionProgramId);
+      let holderDestInfo = await provider.connection.getAccountInfo(holderDest);
+      if (!holderDestInfo) {
+        const tx = new Transaction().add(
+          createAssociatedTokenAccountInstruction(holder.publicKey, holderDest, holder.publicKey, tasteMint, TOKEN_2022_PROGRAM_ID)
+        );
+        await sendAndConfirmTransaction(provider.connection, tx, [holder]);
+      }
+      const destBefore = (await getAccount(provider.connection, holderDest, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      await revenueDistribution.methods
+        .claimRevenue()
+        .accounts({
+          holder: holder.publicKey,
+          revConfig: revConfigPda,
+          distributionEpoch: distributionEpochPda,
+          holderRwaAccount: holderRwaAta,
+          holderDest,
+          holderClaim: holderClaimPda,
+          revVaultAuthority: revVaultAuthorityPda,
+          revVault,
+          tasteMint,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([holder])
+        .rpc();
+      await new Promise((r) => setTimeout(r, 500));
+      const destAfter = (await getAccount(provider.connection, holderDest, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      expect(Number(destAfter)).to.be.greaterThan(Number(destBefore));
+      await expect(
+        revenueDistribution.methods
+          .claimRevenue()
+          .accounts({
+            holder: holder.publicKey,
+            revConfig: revConfigPda,
+            distributionEpoch: distributionEpochPda,
+            holderRwaAccount: holderRwaAta,
+            holderDest,
+            holderClaim: holderClaimPda,
+            revVaultAuthority: revVaultAuthorityPda,
+            revVault,
+            tasteMint,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([holder])
+          .rpc()
+      ).to.be.rejectedWith(/AlreadyClaimed|already claimed|0x/i);
+    });
+
+    it("close_epoch", async () => {
+      const revConfigPda = getRevConfigPda(projectPda, revenueDistributionProgramId);
+      const revVaultAuthorityPda = getRevVaultAuthorityPda(projectPda, revenueDistributionProgramId);
+      const revVault = getAssociatedTokenAddressSync(tasteMint, revVaultAuthorityPda, true, TOKEN_2022_PROGRAM_ID);
+      const config = await (revenueDistribution.account as Record<string, { fetch: (p: PublicKey) => Promise<{ epochCount: { toString: () => string } }> }>).revenueConfig.fetch(revConfigPda) as { epochCount: { toString: () => string } };
+      const epochIndex = Number(config.epochCount.toString()) - 1;
+      const distributionEpochPda = getDistributionEpochPda(projectPda, epochIndex, revenueDistributionProgramId);
+      const artistDest = getAssociatedTokenAddressSync(tasteMint, artist.publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const vaultBefore = (await getAccount(provider.connection, revVault, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      const artistBefore = (await getAccount(provider.connection, artistDest, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      await revenueDistribution.methods
+        .closeEpoch()
+        .accounts({
+          authority: artist.publicKey,
+          revConfig: revConfigPda,
+          distributionEpoch: distributionEpochPda,
+          revVaultAuthority: revVaultAuthorityPda,
+          revVault,
+          artistDest,
+          tasteMint,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        })
+        .signers([artist])
+        .rpc();
+      await new Promise((r) => setTimeout(r, 500));
+      const vaultAfter = (await getAccount(provider.connection, revVault, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      const artistAfter = (await getAccount(provider.connection, artistDest, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
+      expect(Number(vaultAfter)).to.equal(0);
+      expect(Number(artistAfter)).to.be.greaterThan(Number(artistBefore));
+    });
+  });
+
   describe("claim_rwa_tokens_legacy", () => {
     const legacyArtist = Keypair.generate();
     let legacyProjectPda: PublicKey;
@@ -1404,6 +2060,9 @@ describe("tastemaker-programs exhaustive", function () {
     let legacyRwaMintPda: PublicKey;
     /** Governance inits RWA with this supply on 5th finalizeProposal; use for expectedShare. */
     const LEGACY_RWA_SUPPLY = 1_000_000n * 1_000_000n;
+    /** Shorter voting period for this block only so the 5-milestone before() finishes in ~40s instead of ~4 min. */
+    const LEGACY_VOTING_PERIOD_SECS = new anchor.BN(5);
+    const LEGACY_SLEEP_MS = 7_000;
 
     before(async () => {
       await withTxLogs(provider.connection, async () => {
@@ -1425,7 +2084,7 @@ describe("tastemaker-programs exhaustive", function () {
       )[0];
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: legacyArtist.publicKey,
           artistState: artistStatePda,
@@ -1471,11 +2130,11 @@ describe("tastemaker-programs exhaustive", function () {
       for (let milestone = 0; milestone < 5; milestone++) {
         const attempt = await getCurrentProposalAttempt(governance, proposalAttemptPda);
         const proposalPda = getProposalPda(legacyProjectPda, milestone, attempt, governance.programId);
-        await (governance.methods as unknown as { createProposal: (p: PublicKey, m: number, u: string, v: anchor.BN, a: anchor.BN) => { accounts: (a: object) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } }).createProposal(
+        await (governance.methods as unknown as { createProposal: (p: PublicKey, m: number, u: string, v: anchor.BN, a: anchor.BN) => { accounts: (a: object) => { remainingAccounts: (r: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[]) => { signers: (s: Keypair[]) => { rpc: () => Promise<string> } } } } }).createProposal(
           legacyProjectPda,
           milestone,
           `https://proof.example/legacy-m${milestone}`,
-          VOTING_PERIOD_SECS,
+          LEGACY_VOTING_PERIOD_SECS,
           new anchor.BN(attempt)
         )
           .accounts({
@@ -1485,6 +2144,9 @@ describe("tastemaker-programs exhaustive", function () {
             project: legacyProjectPda,
             systemProgram: SystemProgram.programId,
           })
+          .remainingAccounts([
+            { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+          ])
           .signers([legacyArtist])
           .rpc();
         for (let i = 0; i < legacyBackers.length; i++) {
@@ -1511,7 +2173,7 @@ describe("tastemaker-programs exhaustive", function () {
             .signers([legacyBackers[i]])
             .rpc();
         }
-        await new Promise((r) => setTimeout(r, SLEEP_MS));
+        await new Promise((r) => setTimeout(r, LEGACY_SLEEP_MS));
         const legacyEscrowAuthority = PublicKey.findProgramAddressSync(
           [Buffer.from("project"), legacyProjectPda.toBuffer()],
           projectEscrowProgramId
@@ -1530,9 +2192,10 @@ describe("tastemaker-programs exhaustive", function () {
           );
           await sendAndConfirmTransaction(provider.connection, tx, [legacyArtist]);
         }
-        const { rwaState: legacyRwaStatePdaPre, rwaMint: legacyRwaMintPdaPre, rwaMintAuthority: legacyRwaMintAuthorityPre } = getRwaPdas(legacyProjectPda, rwaTokenProgramId);
-        await (governance.methods as unknown as { finalizeProposal: () => { accounts: (a: object) => { rpc: () => Promise<string> } } }).finalizeProposal()
-          .accounts({
+        const { rwaState: legacyRwaStatePdaPre, rwaMint: legacyRwaMintPdaPre, rwaMintAuthority: legacyRwaMintAuthorityPre, rwaConfig: legacyRwaConfig, rwaExtraAccountMetas: legacyRwaExtraAccountMetas, rwaMetadataGuard: legacyRwaMetadataGuard, rwaMetadata: legacyRwaMetadata } = getRwaPdas(legacyProjectPda, rwaTokenProgramId);
+        const legacyFinalizeBuilder = governance.methods
+          .finalizeProposal()
+          .accountsStrict({
             proposal: proposalPda,
             project: legacyProjectPda,
             payer: provider.wallet.publicKey,
@@ -1547,10 +2210,21 @@ describe("tastemaker-programs exhaustive", function () {
             rwaState: legacyRwaStatePdaPre,
             rwaMint: legacyRwaMintPdaPre,
             rwaMintAuthority: legacyRwaMintAuthorityPre,
+            rwaConfig: legacyRwaConfig,
+            rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+            rwaExtraAccountMetas: legacyRwaExtraAccountMetas,
+            rwaMetadataGuard: legacyRwaMetadataGuard,
+            rwaMetadata: legacyRwaMetadata,
+            artist: legacyArtist.publicKey,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
             rwaTokenProgram: rwaTokenProgramId,
             systemProgram: SystemProgram.programId,
           })
-          .rpc();
+          .signers([legacyArtist]);
+        const legacyFinalizeTx = await legacyFinalizeBuilder.transaction();
+        legacyFinalizeTx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+        await provider.sendAndConfirm(legacyFinalizeTx, [legacyArtist]);
       }
 
       legacyRwaStatePda = PublicKey.findProgramAddressSync(
@@ -1663,7 +2337,7 @@ describe("tastemaker-programs exhaustive", function () {
       const goal = new anchor.BN(100_000 * LAMPORTS_PER_TASTE);
 
       await projectEscrow.methods
-        .createProject(goal, MILESTONES, deadline)
+        .createProject("Cancel Proposal", goal, MILESTONES, deadline)
         .accounts({
           artist: cancelProposalArtist.publicKey,
           artistState: cancelProposalArtistStatePda,
@@ -1740,6 +2414,9 @@ describe("tastemaker-programs exhaustive", function () {
           project: cancelProposalProjectPda,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+        ])
         .signers([cancelProposalArtist])
         .rpc();
 
@@ -1784,7 +2461,7 @@ describe("tastemaker-programs exhaustive", function () {
       const goal = new anchor.BN(1_000_000 * LAMPORTS_PER_TASTE);
 
       await projectEscrow.methods
-        .createProject(goal, MILESTONES, deadline)
+        .createProject("Cancel", goal, MILESTONES, deadline)
         .accounts({
           artist: cancelArtist.publicKey,
           artistState: cancelArtistStatePda,
@@ -1933,7 +2610,7 @@ describe("tastemaker-programs exhaustive", function () {
       const badMilestones = [25, 25, 25, 24, 0] as [number, number, number, number, number];
       await expect(
         projectEscrow.methods
-          .createProject(new anchor.BN(GOAL.toString()), badMilestones, deadline)
+          .createProject("Bad Milestones", new anchor.BN(GOAL.toString()), badMilestones, deadline)
           .accounts({
             artist: badArtist.publicKey,
             artistState: artistStatePda,
@@ -1964,7 +2641,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const pastDeadline = new anchor.BN(Math.floor(Date.now() / 1000) - 3600);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, pastDeadline)
+        .createProject("Past Deadline", new anchor.BN(GOAL.toString()), MILESTONES, pastDeadline)
         .accounts({
           artist: pastArtist.publicKey,
           artistState: artistStatePda,
@@ -2022,7 +2699,7 @@ describe("tastemaker-programs exhaustive", function () {
         projectEscrowProgramId
       );
       await projectEscrow.methods
-        .createProject(new anchor.BN(smallGoal), MILESTONES, deadline)
+        .createProject("Small Goal", new anchor.BN(smallGoal), MILESTONES, deadline)
         .accounts({
           artist: goalArtist.publicKey,
           artistState: artistStatePda,
@@ -2247,7 +2924,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: voteExpiredArtist.publicKey,
           artistState: artistStatePda,
@@ -2298,6 +2975,9 @@ describe("tastemaker-programs exhaustive", function () {
           project: expiredProjectPda,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+        ])
         .signers([voteExpiredArtist])
         .rpc();
       await new Promise((r) => setTimeout(r, 3000));
@@ -2338,7 +3018,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: earlyFinalArtist.publicKey,
           artistState: artistStatePda,
@@ -2389,6 +3069,9 @@ describe("tastemaker-programs exhaustive", function () {
           project: earlyProjectPda,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+        ])
         .signers([earlyFinalArtist])
         .rpc();
 
@@ -2427,7 +3110,7 @@ describe("tastemaker-programs exhaustive", function () {
       await expect(
         governance.methods
           .finalizeProposal()
-          .accounts({
+          .accountsStrict({
             proposal: proposalPda,
             project: earlyProjectPda,
             payer: provider.wallet.publicKey,
@@ -2442,9 +3125,18 @@ describe("tastemaker-programs exhaustive", function () {
             rwaState: earlyRwa.rwaState,
             rwaMint: earlyRwa.rwaMint,
             rwaMintAuthority: earlyRwa.rwaMintAuthority,
+            rwaConfig: earlyRwa.rwaConfig,
+            rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+            rwaExtraAccountMetas: earlyRwa.rwaExtraAccountMetas,
+            rwaMetadataGuard: earlyRwa.rwaMetadataGuard,
+            rwaMetadata: earlyRwa.rwaMetadata,
+            artist: earlyFinalArtist.publicKey,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
             rwaTokenProgram: rwaTokenProgramId,
             systemProgram: SystemProgram.programId,
           })
+          .signers([earlyFinalArtist])
           .rpc()
       ).to.be.rejectedWith(/VotingNotEnded|voting period has not ended|0x1773/);
     });
@@ -2467,7 +3159,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: noRemArtist.publicKey,
           artistState: noRemArtistStatePda,
@@ -2519,6 +3211,9 @@ describe("tastemaker-programs exhaustive", function () {
           project: noRemProjectPda,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+        ])
         .signers([noRemArtist])
         .rpc();
       const [noRemVotePda] = PublicKey.findProgramAddressSync(
@@ -2548,9 +3243,9 @@ describe("tastemaker-programs exhaustive", function () {
         }
       }
       const noRemRwa = getRwaPdas(noRemProjectPda, rwaTokenProgramId);
-      await governance.methods
+      const noRemFinalizeBuilder = governance.methods
         .finalizeProposal()
-        .accounts({
+        .accountsStrict({
           proposal: noRemProposalPda,
           project: noRemProjectPda,
           payer: provider.wallet.publicKey,
@@ -2565,10 +3260,21 @@ describe("tastemaker-programs exhaustive", function () {
           rwaState: noRemRwa.rwaState,
           rwaMint: noRemRwa.rwaMint,
           rwaMintAuthority: noRemRwa.rwaMintAuthority,
+          rwaConfig: noRemRwa.rwaConfig,
+          rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+          rwaExtraAccountMetas: noRemRwa.rwaExtraAccountMetas,
+          rwaMetadataGuard: noRemRwa.rwaMetadataGuard,
+          rwaMetadata: noRemRwa.rwaMetadata,
+          artist: noRemArtist.publicKey,
+          tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+          sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
           rwaTokenProgram: rwaTokenProgramId,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .signers([noRemArtist]);
+      const noRemFinalizeTx = await noRemFinalizeBuilder.transaction();
+      noRemFinalizeTx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+      await provider.sendAndConfirm(noRemFinalizeTx, [noRemArtist]);
       const proposalAfter = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(noRemProposalPda) as { status: Record<string, unknown> };
       expect("passed" in proposalAfter.status || "active" in proposalAfter.status).to.be.true;
     });
@@ -2591,7 +3297,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: earlyOkArtist.publicKey,
           artistState: artistStatePda,
@@ -2674,9 +3380,9 @@ describe("tastemaker-programs exhaustive", function () {
         }
       }
       const earlyOkRwa = getRwaPdas(earlyOkProjectPda, rwaTokenProgramId);
-      await governance.methods
+      const earlyOkFinalizeBuilder = governance.methods
         .finalizeProposal()
-        .accounts({
+        .accountsStrict({
           proposal: proposalPda,
           project: earlyOkProjectPda,
           payer: provider.wallet.publicKey,
@@ -2691,6 +3397,14 @@ describe("tastemaker-programs exhaustive", function () {
           rwaState: earlyOkRwa.rwaState,
           rwaMint: earlyOkRwa.rwaMint,
           rwaMintAuthority: earlyOkRwa.rwaMintAuthority,
+          rwaConfig: earlyOkRwa.rwaConfig,
+          rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+          rwaExtraAccountMetas: earlyOkRwa.rwaExtraAccountMetas,
+          rwaMetadataGuard: earlyOkRwa.rwaMetadataGuard,
+          rwaMetadata: earlyOkRwa.rwaMetadata,
+          artist: earlyOkArtist.publicKey,
+          tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+          sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
           rwaTokenProgram: rwaTokenProgramId,
           systemProgram: SystemProgram.programId,
         })
@@ -2698,7 +3412,10 @@ describe("tastemaker-programs exhaustive", function () {
           { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
           { pubkey: getVoteWeightPda(earlyOkProjectPda, projectEscrowProgramId), isSigner: false, isWritable: false },
         ])
-        .rpc();
+        .signers([earlyOkArtist]);
+      const earlyOkFinalizeTx = await earlyOkFinalizeBuilder.transaction();
+      earlyOkFinalizeTx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }));
+      await provider.sendAndConfirm(earlyOkFinalizeTx, [earlyOkArtist]);
       const proposalAfter = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(proposalPda) as { status: Record<string, unknown> };
       expect("passed" in proposalAfter.status).to.be.true;
     });
@@ -2721,7 +3438,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: notDecidedArtist.publicKey,
           artistState: artistStatePda,
@@ -2815,7 +3532,7 @@ describe("tastemaker-programs exhaustive", function () {
       await expect(
         governance.methods
           .finalizeProposal()
-          .accounts({
+          .accountsStrict({
             proposal: proposalPda,
             project: notDecidedProjectPda,
             payer: provider.wallet.publicKey,
@@ -2830,6 +3547,14 @@ describe("tastemaker-programs exhaustive", function () {
             rwaState: notDecidedRwa.rwaState,
             rwaMint: notDecidedRwa.rwaMint,
             rwaMintAuthority: notDecidedRwa.rwaMintAuthority,
+            rwaConfig: notDecidedRwa.rwaConfig,
+            rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+            rwaExtraAccountMetas: notDecidedRwa.rwaExtraAccountMetas,
+            rwaMetadataGuard: notDecidedRwa.rwaMetadataGuard,
+            rwaMetadata: notDecidedRwa.rwaMetadata,
+            artist: notDecidedArtist.publicKey,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
             rwaTokenProgram: rwaTokenProgramId,
             systemProgram: SystemProgram.programId,
           })
@@ -2837,6 +3562,7 @@ describe("tastemaker-programs exhaustive", function () {
             { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
             { pubkey: getVoteWeightPda(notDecidedProjectPda, projectEscrowProgramId), isSigner: false, isWritable: false },
           ])
+          .signers([notDecidedArtist])
           .rpc()
       ).to.be.rejectedWith(/VotingNotEnded|voting period has not ended|0x1773/);
     });
@@ -2873,7 +3599,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: activeArtist.publicKey,
           artistState: artistStatePda,
@@ -2886,6 +3612,7 @@ describe("tastemaker-programs exhaustive", function () {
         })
         .signers([activeArtist])
         .rpc();
+      const { rwaConfig, rwaExtraAccountMetas } = getRwaPdas(activeProjectPda, rwaTokenProgramId);
       const [rwaStatePda] = PublicKey.findProgramAddressSync(
         [Buffer.from("rwa_state"), activeProjectPda.toBuffer()],
         rwaTokenProgramId
@@ -2901,12 +3628,15 @@ describe("tastemaker-programs exhaustive", function () {
       await expect(
         rwaToken.methods
           .initializeRwaMint(new anchor.BN(1_000_000))
-          .accounts({
+          .accountsStrict({
             authority: activeArtist.publicKey,
             project: activeProjectPda,
             rwaState: rwaStatePda,
+            rwaConfig,
             rwaMint: rwaMintPda,
             rwaMintAuthority,
+            rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+            extraAccountMetas: rwaExtraAccountMetas,
             tokenProgram: TOKEN_2022_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
@@ -2933,7 +3663,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: doubleArtist.publicKey,
           artistState: artistStatePda,
@@ -3014,7 +3744,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: rejectArtist.publicKey,
           artistState: artistStatePda,
@@ -3067,6 +3797,9 @@ describe("tastemaker-programs exhaustive", function () {
           project: rejectProjectPda,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+        ])
         .signers([rejectArtist])
         .rpc();
       for (let i = 0; i < 5; i++) {
@@ -3106,7 +3839,7 @@ describe("tastemaker-programs exhaustive", function () {
       const rejectRwa = getRwaPdas(rejectProjectPda, rwaTokenProgramId);
       await governance.methods
         .finalizeProposal()
-        .accounts({
+        .accountsStrict({
           proposal: proposalPda,
           project: rejectProjectPda,
           payer: provider.wallet.publicKey,
@@ -3121,10 +3854,19 @@ describe("tastemaker-programs exhaustive", function () {
           rwaState: rejectRwa.rwaState,
           rwaMint: rejectRwa.rwaMint,
           rwaMintAuthority: rejectRwa.rwaMintAuthority,
-          rwaTokenProgram: rwaTokenProgramId,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
+          rwaConfig: rejectRwa.rwaConfig,
+          rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+          rwaExtraAccountMetas: rejectRwa.rwaExtraAccountMetas,
+          rwaMetadataGuard: rejectRwa.rwaMetadataGuard,
+          rwaMetadata: rejectRwa.rwaMetadata,
+            artist: rejectArtist.publicKey,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
+            rwaTokenProgram: rwaTokenProgramId,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([rejectArtist])
+          .rpc();
       const proposal = await (governance.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).proposal.fetch(proposalPda);
       expect((proposal as { status: { rejected?: unknown } }).status?.rejected !== undefined || (proposal as { status: number }).status === 1).to.be.true;
       const project = await (projectEscrow.account as Record<string, { fetch: (p: PublicKey) => Promise<unknown> }>).project.fetch(rejectProjectPda) as { currentMilestone: number };
@@ -3151,6 +3893,9 @@ describe("tastemaker-programs exhaustive", function () {
           project: rejectProjectPda,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+        ])
         .signers([rejectArtist])
         .rpc();
       for (let i = 0; i < 5; i++) {
@@ -3250,7 +3995,7 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const deadline = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
       await projectEscrow.methods
-        .createProject(new anchor.BN(GOAL.toString()), MILESTONES, deadline)
+        .createProject("Test Album", new anchor.BN(GOAL.toString()), MILESTONES, deadline)
         .accounts({
           artist: quorumArtist.publicKey,
           artistState: artistStatePda,
@@ -3302,6 +4047,9 @@ describe("tastemaker-programs exhaustive", function () {
           project: quorumProjectPda,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([
+          { pubkey: getGovConfigPda(governanceProgramId), isSigner: false, isWritable: false },
+        ])
         .signers([quorumArtist])
         .rpc();
       await new Promise((r) => setTimeout(r, 3000));
@@ -3320,7 +4068,7 @@ describe("tastemaker-programs exhaustive", function () {
       await expect(
         governance.methods
           .finalizeProposal()
-          .accounts({
+          .accountsStrict({
             proposal: proposalPda,
             project: quorumProjectPda,
             payer: provider.wallet.publicKey,
@@ -3335,9 +4083,18 @@ describe("tastemaker-programs exhaustive", function () {
             rwaState: quorumRwa.rwaState,
             rwaMint: quorumRwa.rwaMint,
             rwaMintAuthority: quorumRwa.rwaMintAuthority,
+            rwaConfig: quorumRwa.rwaConfig,
+            rwaTransferHookProgram: RWA_TRANSFER_HOOK_PROGRAM_ID,
+            rwaExtraAccountMetas: quorumRwa.rwaExtraAccountMetas,
+            rwaMetadataGuard: quorumRwa.rwaMetadataGuard,
+            rwaMetadata: quorumRwa.rwaMetadata,
+            artist: quorumArtist.publicKey,
+            tokenMetadataProgram: MPL_TOKEN_METADATA_ID,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_ID,
             rwaTokenProgram: rwaTokenProgramId,
             systemProgram: SystemProgram.programId,
           })
+          .signers([quorumArtist])
           .rpc()
       ).to.be.rejectedWith(/QuorumNotMet|quorum not met/);
     });

@@ -15,7 +15,7 @@ use mpl_token_metadata::{
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("CSYjKt27tGUsb33uXbo5enQCFPEBBth9ZGoai82yUWtM");
+declare_id!("A84LLpCwTZ98h1nJxbzoXvb4UhbWCeSmJwnkCXY7JFnK");
 #[cfg(feature = "devnet")]
 declare_id!("bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym");
 
@@ -85,9 +85,17 @@ pub enum EscrowError {
     InvalidMetadataAccount,
     #[msg("Token metadata program is not the expected Metaplex program")]
     InvalidTokenMetadataProgram,
+    #[msg("Project name too long (max 32 chars)")]
+    ProjectNameTooLong,
 }
 
 pub const MAX_MILESTONES: usize = 5;
+
+/// Number of milestones that must be released before project completes.
+/// Derived from last non-zero percentage. [50,50,0,0,0] -> 2.
+pub fn effective_milestone_count(percentages: &[u16; MAX_MILESTONES]) -> usize {
+    percentages.iter().rposition(|&p| p > 0).map(|i| i + 1).unwrap_or(1)
+}
 
 /// Validates that the signer is the program's upgrade authority by reading upgradeable loader
 /// state (4-byte bincode layout).
@@ -214,14 +222,17 @@ pub mod project_escrow {
 
     pub fn create_project(
         ctx: Context<CreateProject>,
+        name: String,
         goal: u64,
         milestone_percentages: [u16; MAX_MILESTONES],
         deadline: i64,
     ) -> Result<()> {
+        require!(name.len() <= MAX_PROJECT_NAME_LEN, EscrowError::ProjectNameTooLong);
         let sum: u16 = milestone_percentages.iter().sum();
         require!(sum == 100, EscrowError::InvalidMilestonePercentages);
         let project = &mut ctx.accounts.project;
         project.artist = ctx.accounts.artist.key();
+        project.name = name;
         project.goal = goal;
         project.milestone_percentages = milestone_percentages;
         project.deadline = deadline;
@@ -419,7 +430,7 @@ pub mod project_escrow {
             .current_milestone
             .checked_add(1)
             .ok_or(EscrowError::Overflow)?;
-        if project.current_milestone as usize >= MAX_MILESTONES {
+        if project.current_milestone as usize >= effective_milestone_count(&project.milestone_percentages) {
             project.status = ProjectStatus::Completed;
         }
         msg!("Released milestone {}: {} $TASTE", idx, amount);
@@ -433,11 +444,38 @@ pub mod project_escrow {
             EscrowError::ProjectNotActive
         );
         require!(
-            project.current_milestone as usize >= MAX_MILESTONES,
+            project.current_milestone as usize >= effective_milestone_count(&project.milestone_percentages),
             EscrowError::NotAllMilestonesReleased
         );
         project.status = ProjectStatus::Completed;
         msg!("Project completed");
+        Ok(())
+    }
+
+    /// Recovery: mark project Completed when all milestones are released but status stuck Active
+    /// (e.g. finalized with old program that expected 5 milestones). Upgrade authority only.
+    pub fn force_complete_project(ctx: Context<ForceCompleteProject>) -> Result<()> {
+        let program_account = ctx.accounts.program_account.try_borrow_data()?;
+        let program_data_account = ctx.accounts.program_data_account.try_borrow_data()?;
+        require_upgrade_authority(
+            ctx.program_id,
+            &ctx.accounts.program_account.key(),
+            &program_account,
+            &ctx.accounts.program_data_account.key(),
+            &program_data_account,
+            &ctx.accounts.authority.key(),
+        )?;
+        let project = &mut ctx.accounts.project;
+        require!(
+            project.status == ProjectStatus::Active,
+            EscrowError::ProjectNotActive
+        );
+        require!(
+            project.current_milestone as usize >= effective_milestone_count(&project.milestone_percentages),
+            EscrowError::NotAllMilestonesReleased
+        );
+        project.status = ProjectStatus::Completed;
+        msg!("Project force-completed (recovery)");
         Ok(())
     }
 
@@ -694,9 +732,13 @@ pub enum ProjectStatus {
     Cancelled,
 }
 
+/// Max length for project name (used in metadata).
+pub const MAX_PROJECT_NAME_LEN: usize = 32;
+
 #[account]
 pub struct Project {
     pub artist: Pubkey,
+    pub name: String,
     pub goal: u64,
     pub milestone_percentages: [u16; MAX_MILESTONES],
     pub deadline: i64,
@@ -830,7 +872,7 @@ pub struct CreateProject<'info> {
     #[account(
         init,
         payer = artist,
-        space = 8 + 32 + 8 + (2 * MAX_MILESTONES) + 8 + 1 + 32 + 8 + 4 + 1,
+        space = 8 + 32 + 4 + MAX_PROJECT_NAME_LEN + 8 + (2 * MAX_MILESTONES) + 8 + 1 + 32 + 8 + 4 + 1,
         seeds = [b"project", artist.key().as_ref(), artist_state.project_count.to_le_bytes().as_ref()],
         bump,
     )]
@@ -1012,6 +1054,20 @@ pub struct CompleteProject<'info> {
 
     #[account(mut)]
     pub project: Account<'info, Project>,
+}
+
+#[derive(Accounts)]
+pub struct ForceCompleteProject<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub project: Account<'info, Project>,
+
+    /// CHECK: validated in instruction
+    pub program_account: UncheckedAccount<'info>,
+    /// CHECK: validated in instruction
+    pub program_data_account: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]

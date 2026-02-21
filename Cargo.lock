@@ -1279,6 +1279,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a96887878f22d7bad8a3b6dc5b7440e0ada9a245242924394987b21cf2210a4c"
 
 [[package]]
+name = "revenue_distribution"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "project_escrow",
+ "rwa_token",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1301,6 +1311,24 @@ dependencies = [
  "anchor-spl",
  "mpl-token-metadata",
  "project_escrow",
+ "spl-token-2022",
+ "spl-transfer-hook-interface",
+]
+
+[[package]]
+name = "rwa_transfer_hook"
+version = "0.1.0"
+dependencies = [
+ "solana-account-info",
+ "solana-cpi",
+ "solana-msg",
+ "solana-program",
+ "solana-program-error",
+ "solana-pubkey",
+ "solana-system-interface",
+ "spl-tlv-account-resolution",
+ "spl-token-2022",
+ "spl-transfer-hook-interface",
 ]
 
 [[package]]

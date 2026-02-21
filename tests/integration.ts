@@ -197,6 +197,7 @@ describe("tastemaker-programs integration", () => {
 
     await projectEscrowProgram.methods
       .createProject(
+        "Integration Test",
         new anchor.BN(GOAL),
         MILESTONES,
         deadline

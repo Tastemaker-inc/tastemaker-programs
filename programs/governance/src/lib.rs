@@ -9,7 +9,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("FEhL9yD8zPeYqS8i2haLG4HtaU8JXhb8QdiB5BoZpVTu");
+declare_id!("2hfuv5tWYuAfMxgKDAcUMU7tEQdFhWALRqakB8BagHev");
 #[cfg(feature = "devnet")]
 declare_id!("AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK");
 
@@ -401,7 +401,8 @@ pub mod governance {
             ctx.accounts.project.reload()?;
 
             // If project just completed (last milestone released), auto-init RWA mint (idempotent).
-            if ctx.accounts.project.current_milestone as usize >= project_escrow::MAX_MILESTONES
+            if ctx.accounts.project.current_milestone as usize
+                >= project_escrow::effective_milestone_count(&ctx.accounts.project.milestone_percentages)
                 && ctx.accounts.rwa_state.lamports() == 0
             {
                 let rwa_cpi_ctx = CpiContext::new_with_signer(
@@ -412,8 +413,12 @@ pub mod governance {
                         config: ctx.accounts.escrow_config.to_account_info(),
                         project: ctx.accounts.project.to_account_info(),
                         rwa_state: ctx.accounts.rwa_state.to_account_info(),
+                        rwa_config: ctx.accounts.rwa_config.to_account_info(),
                         rwa_mint: ctx.accounts.rwa_mint.to_account_info(),
                         rwa_mint_authority: ctx.accounts.rwa_mint_authority.to_account_info(),
+                        rwa_transfer_hook_program: ctx.accounts.rwa_transfer_hook_program
+                            .to_account_info(),
+                        extra_account_metas: ctx.accounts.rwa_extra_account_metas.to_account_info(),
                         token_program: ctx.accounts.token_program.to_account_info(),
                         system_program: ctx.accounts.system_program.to_account_info(),
                     },
@@ -421,6 +426,33 @@ pub mod governance {
                 );
                 const RWA_TOTAL_SUPPLY: u64 = 1_000_000 * 1_000_000;
                 rwa_token::cpi::initialize_rwa_mint_by_governance(rwa_cpi_ctx, RWA_TOTAL_SUPPLY)?;
+            }
+
+            // If RWA mint was just created (or exists) and metadata not yet set, init Metaplex metadata.
+            let rwa_state_lamports = ctx.accounts.rwa_state.lamports();
+            let metadata_guard_uninit = ctx.accounts.rwa_metadata_guard.owner == &anchor_lang::system_program::ID;
+            if rwa_state_lamports > 0 && metadata_guard_uninit {
+                let meta_cpi_ctx = CpiContext::new_with_signer(
+                    ctx.accounts.rwa_token_program.to_account_info(),
+                    rwa_token::cpi::accounts::InitializeRwaMetadataByGovernance {
+                        payer: ctx.accounts.payer.to_account_info(),
+                        release_authority: ctx.accounts.release_authority.to_account_info(),
+                        config: ctx.accounts.escrow_config.to_account_info(),
+                        project: ctx.accounts.project.to_account_info(),
+                        rwa_state: ctx.accounts.rwa_state.to_account_info(),
+                        rwa_mint: ctx.accounts.rwa_mint.to_account_info(),
+                        rwa_mint_authority: ctx.accounts.rwa_mint_authority.to_account_info(),
+                        metadata_guard: ctx.accounts.rwa_metadata_guard.to_account_info(),
+                        metadata: ctx.accounts.rwa_metadata.to_account_info(),
+                        update_authority: ctx.accounts.artist.to_account_info(),
+                        token_metadata_program: ctx.accounts.token_metadata_program.to_account_info(),
+                        system_program: ctx.accounts.system_program.to_account_info(),
+                        sysvar_instructions: ctx.accounts.sysvar_instructions.to_account_info(),
+                        token_program: ctx.accounts.token_program.to_account_info(),
+                    },
+                    signer_seeds,
+                );
+                rwa_token::cpi::initialize_rwa_metadata_by_governance(meta_cpi_ctx)?;
             }
         }
         let status_str = if passed { "Passed" } else { "Rejected" };
@@ -762,6 +794,41 @@ pub struct FinalizeProposal<'info> {
     /// RWA mint authority PDA (rwa_token).
     /// CHECK: validated by rwa_token CPI
     pub rwa_mint_authority: UncheckedAccount<'info>,
+
+    /// RwaConfig PDA (rwa_token). Stores transfer_hook_program_id for RWA mint creation.
+    /// CHECK: validated by rwa_token CPI
+    pub rwa_config: UncheckedAccount<'info>,
+
+    /// rwa_transfer_hook program. Used when auto-initing RWA mint with TransferHook.
+    /// CHECK: validated by rwa_token CPI (must match rwa_config.transfer_hook_program_id)
+    pub rwa_transfer_hook_program: UncheckedAccount<'info>,
+
+    /// Extra-account-metas PDA [b"extra-account-metas", rwa_mint] for rwa_transfer_hook.
+    /// CHECK: validated by rwa_token CPI
+    #[account(mut)]
+    pub rwa_extra_account_metas: UncheckedAccount<'info>,
+
+    /// RWA metadata guard PDA (rwa_token). Used when auto-initing Metaplex metadata after RWA mint.
+    /// CHECK: validated by rwa_token CPI; may be uninitialized
+    #[account(mut)]
+    pub rwa_metadata_guard: UncheckedAccount<'info>,
+
+    /// Metaplex metadata PDA for rwa_mint. Used when auto-initing RWA metadata.
+    /// CHECK: validated by rwa_token CPI
+    #[account(mut)]
+    pub rwa_metadata: UncheckedAccount<'info>,
+
+    /// Artist wallet (project.artist). Must sign when finalizing last milestone so RWA metadata can use artist as Metaplex update_authority (CPI signer rule).
+    #[account(constraint = artist.key() == project.artist)]
+    pub artist: Signer<'info>,
+
+    /// Metaplex Token Metadata program (metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s).
+    /// CHECK: validated by rwa_token CPI
+    pub token_metadata_program: UncheckedAccount<'info>,
+
+    /// Sysvar Instructions (required by Metaplex CreateV1).
+    /// CHECK: required by Metaplex
+    pub sysvar_instructions: UncheckedAccount<'info>,
 
     pub rwa_token_program: Program<'info, rwa_token::program::RwaToken>,
 

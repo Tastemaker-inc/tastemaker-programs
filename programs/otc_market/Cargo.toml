@@ -19,5 +19,5 @@ test = []
 devnet = []
 
 [dependencies]
-anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }
-anchor-spl = { version = "0.32.0", features = ["token", "associated_token"] }
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+  anchor-spl = { version = "0.32.1", features = ["token", "associated_token"] }

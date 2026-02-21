@@ -4,8 +4,23 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-# Align program IDs with deploy keypairs (same as CI) so built IDL matches deployed programs.
+# Cursor/sandbox sets CARGO_TARGET_DIR to a temp path; build output must be in ROOT_DIR/target
+# so rwa_transfer_hook.so is found for deploy. Otherwise "Unsupported program id" (hook not deployed).
+unset CARGO_TARGET_DIR
+
+# Full workspace clean so all programs and IDLs are rebuilt with consistent declare_id.
+# Stale incremental build can cause InvalidProgramId (governance expects wrong rwa_token address).
+cargo clean 2>/dev/null || true
+
+# First build with --ignore-keys so keypairs are created (cargo clean removed them).
+# Then sync keypairs to Anchor.toml and declare_id so second build and deploy match.
+anchor build --ignore-keys -- --features test
 anchor keys sync
+anchor build -- --features test
+
+# Build rwa_transfer_hook (native Solana program, not Anchor; no IDL). Required for RWA mint creation.
+# Done after anchor build so cargo-build-sbf post_processing sees a complete workspace.
+cargo build-sbf -- -p rwa_transfer_hook
 
 # Metaplex Token Metadata program for receipt/RWA metadata tests (CI downloads if missing).
 MPL_PROGRAM_ID="metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
@@ -47,6 +62,24 @@ if ! solana -u http://127.0.0.1:8899 block-height >/dev/null 2>&1; then
   exit 1
 fi
 
+# Deploy rwa_transfer_hook (native program, not built by anchor build). Required for RWA mint CPI.
+# Without this, finalizeProposal -> InitializeRwaMintByGovernance fails with "Unsupported program id".
+# Deploy uses the keypair from cargo build-sbf (may not match Anchor.toml 56Lt...). Export its
+# program ID so tests use the actual deployed address.
+RWA_HOOK_SO="${ROOT_DIR}/target/deploy/rwa_transfer_hook.so"
+RWA_HOOK_KEYPAIR="${ROOT_DIR}/target/deploy/rwa_transfer_hook-keypair.json"
+if [ ! -f "$RWA_HOOK_SO" ] || [ ! -f "$RWA_HOOK_KEYPAIR" ]; then
+  echo "Missing rwa_transfer_hook build artifacts. Expected: $RWA_HOOK_SO and $RWA_HOOK_KEYPAIR" >&2
+  echo "Ensure CARGO_TARGET_DIR is unset and 'cargo build-sbf -p rwa_transfer_hook' ran." >&2
+  exit 1
+fi
+if ! solana program deploy -u http://127.0.0.1:8899 "$RWA_HOOK_SO" --program-id "$RWA_HOOK_KEYPAIR"; then
+  echo "rwa_transfer_hook deploy failed. Check validator and keypair." >&2
+  exit 1
+fi
+RWA_TRANSFER_HOOK_PROGRAM_ID="$(solana-keygen pubkey "$RWA_HOOK_KEYPAIR")"
+export RWA_TRANSFER_HOOK_PROGRAM_ID
+
 TEST_WALLET="${ROOT_DIR}/scripts/test-wallet.json"
 if [ ! -f "$TEST_WALLET" ]; then
   solana-keygen new -o "$TEST_WALLET" --no-bip39-passphrase --force >/dev/null
@@ -56,5 +89,6 @@ TEST_WALLET_ADDR="$(solana address -k "$TEST_WALLET")"
 solana config set --keypair "$TEST_WALLET" --url http://127.0.0.1:8899 >/dev/null
 solana -u http://127.0.0.1:8899 airdrop 1000 "$TEST_WALLET_ADDR" >/dev/null
 
-ANCHOR_WALLET="$TEST_WALLET" \
+# Optional: set TEST_GREP to run only matching tests (e.g. TEST_GREP="initializes RwaConfig"). run-mocha.sh reads it.
+ANCHOR_WALLET="$TEST_WALLET" TEST_GREP="${TEST_GREP:-}" \
 anchor test --skip-local-validator --provider.cluster localnet --provider.wallet "$TEST_WALLET" -- --features test
