@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
 # Run a subset of tests by Mocha --grep. Uses same validator + deploy as run-test-full.sh.
-# Legacy test (needs config + taste_token first):
-#   ./scripts/run-test-grep.sh "config|taste_token|claim_rwa_tokens_legacy"
-# Other examples:
-#   ./scripts/run-test-grep.sh "mint_receipt for first backer"
-#   ./scripts/run-test-grep.sh "all backers claim RWA"
+# See tests/README.md for dependency order and safe subsets.
+# Examples:
+#   npm run test:config
+#   npm run test:taste
+#   npm run test:grep -- "config|taste_token|claim_rwa_tokens_legacy"
+#   npm run test:grep -- "rwa_token|revenue_distribution"
 set -euo pipefail
 
 GREP_PATTERN="${1:-}"
 if [ -z "$GREP_PATTERN" ]; then
   echo "Usage: $0 <mocha-grep-pattern>" >&2
   echo "Example: $0 'claim_rwa_tokens_legacy'" >&2
-  echo "Example (legacy + deps - config, taste_token, legacy): $0 'config|taste_token|claim_rwa_tokens_legacy'" >&2
+  echo "Example (with deps): $0 'config|taste_token|claim_rwa_tokens_legacy'" >&2
+  echo "See tests/README.md for safe subsets." >&2
   exit 1
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+
+# Build output must be in ROOT_DIR/target so rwa_transfer_hook.so is found for deploy.
+unset CARGO_TARGET_DIR
 
 anchor keys sync
 
@@ -71,10 +76,27 @@ echo "Building and deploying programs..."
 ANCHOR_WALLET="$TEST_WALLET" anchor build -- --features test
 ANCHOR_WALLET="$TEST_WALLET" anchor deploy --provider.cluster localnet --provider.wallet "$TEST_WALLET"
 
+# Deploy rwa_transfer_hook (native program) so RWA/revenue greps work (e.g. test:grep "rwa_token").
+RWA_HOOK_SO="${ROOT_DIR}/target/deploy/rwa_transfer_hook.so"
+RWA_HOOK_KEYPAIR="${ROOT_DIR}/target/deploy/rwa_transfer_hook-keypair.json"
+if [ ! -f "$RWA_HOOK_SO" ] || [ ! -f "$RWA_HOOK_KEYPAIR" ]; then
+  cargo build-sbf -- -p rwa_transfer_hook 2>/dev/null || true
+fi
+export RWA_TRANSFER_HOOK_PROGRAM_ID=""
+if [ -f "$RWA_HOOK_SO" ] && [ -f "$RWA_HOOK_KEYPAIR" ]; then
+  if solana program deploy -u http://127.0.0.1:8899 "$RWA_HOOK_SO" --program-id "$RWA_HOOK_KEYPAIR" 2>/dev/null; then
+    RWA_TRANSFER_HOOK_PROGRAM_ID="$(solana-keygen pubkey "$RWA_HOOK_KEYPAIR")"
+    export RWA_TRANSFER_HOOK_PROGRAM_ID
+    echo "Deployed rwa_transfer_hook: $RWA_TRANSFER_HOOK_PROGRAM_ID"
+  fi
+fi
+
 echo "Building test bundle and running tests matching: $GREP_PATTERN"
 node scripts/patch-governance-idl.cjs
 mkdir -p dist/tests
 npx esbuild tests/exhaustive.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist/tests/exhaustive.js
 npx esbuild tests/otc_market.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist/tests/otc_market.js
 
-ANCHOR_WALLET="$TEST_WALLET" ANCHOR_PROVIDER_URL="http://127.0.0.1:8899" npx mocha -t 1000000 --grep "$GREP_PATTERN" dist/tests/exhaustive.js dist/tests/otc_market.js
+ANCHOR_WALLET="$TEST_WALLET" ANCHOR_PROVIDER_URL="http://127.0.0.1:8899" \
+  RWA_TRANSFER_HOOK_PROGRAM_ID="${RWA_TRANSFER_HOOK_PROGRAM_ID:-}" \
+  npx mocha -t 1000000 --grep "$GREP_PATTERN" dist/tests/exhaustive.js dist/tests/otc_market.js

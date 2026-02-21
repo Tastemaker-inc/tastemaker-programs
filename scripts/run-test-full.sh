@@ -74,10 +74,18 @@ if ! solana -u http://127.0.0.1:8899 block-height >/dev/null 2>&1; then
   exit 1
 fi
 
+# Create test wallet and set as default signer before any solana CLI deploy (CI has no ~/.config/solana/id.json).
+TEST_WALLET="${ROOT_DIR}/scripts/test-wallet.json"
+if [ ! -f "$TEST_WALLET" ]; then
+  solana-keygen new -o "$TEST_WALLET" --no-bip39-passphrase --force >/dev/null
+fi
+TEST_WALLET_ADDR="$(solana address -k "$TEST_WALLET")"
+solana config set --keypair "$TEST_WALLET" --url http://127.0.0.1:8899 >/dev/null
+solana -u http://127.0.0.1:8899 airdrop 1000 "$TEST_WALLET_ADDR" >/dev/null
+
 # Deploy rwa_transfer_hook (native program, not built by anchor build). Required for RWA mint CPI.
 # Without this, finalizeProposal -> InitializeRwaMintByGovernance fails with "Unsupported program id".
-# Deploy uses the keypair from cargo build-sbf (may not match Anchor.toml 56Lt...). Export its
-# program ID so tests use the actual deployed address.
+# Deploy uses default signer (test wallet above) so CI and local work without ~/.config/solana/id.json.
 RWA_HOOK_SO="${ROOT_DIR}/target/deploy/rwa_transfer_hook.so"
 RWA_HOOK_KEYPAIR="${ROOT_DIR}/target/deploy/rwa_transfer_hook-keypair.json"
 if [ ! -f "$RWA_HOOK_SO" ] || [ ! -f "$RWA_HOOK_KEYPAIR" ]; then
@@ -86,20 +94,11 @@ if [ ! -f "$RWA_HOOK_SO" ] || [ ! -f "$RWA_HOOK_KEYPAIR" ]; then
   exit 1
 fi
 if ! solana program deploy -u http://127.0.0.1:8899 "$RWA_HOOK_SO" --program-id "$RWA_HOOK_KEYPAIR"; then
-  echo "rwa_transfer_hook deploy failed. Check validator and keypair." >&2
+  echo "rwa_transfer_hook deploy failed. Check validator and keypair (default signer: $TEST_WALLET)." >&2
   exit 1
 fi
 RWA_TRANSFER_HOOK_PROGRAM_ID="$(solana-keygen pubkey "$RWA_HOOK_KEYPAIR")"
 export RWA_TRANSFER_HOOK_PROGRAM_ID
-
-TEST_WALLET="${ROOT_DIR}/scripts/test-wallet.json"
-if [ ! -f "$TEST_WALLET" ]; then
-  solana-keygen new -o "$TEST_WALLET" --no-bip39-passphrase --force >/dev/null
-fi
-
-TEST_WALLET_ADDR="$(solana address -k "$TEST_WALLET")"
-solana config set --keypair "$TEST_WALLET" --url http://127.0.0.1:8899 >/dev/null
-solana -u http://127.0.0.1:8899 airdrop 1000 "$TEST_WALLET_ADDR" >/dev/null
 
 # Optional: set TEST_GREP to run only matching tests (e.g. TEST_GREP="initializes RwaConfig"). run-mocha.sh reads it.
 ANCHOR_WALLET="$TEST_WALLET" TEST_GREP="${TEST_GREP:-}" \

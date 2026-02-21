@@ -15,7 +15,7 @@ use mpl_token_metadata::{
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("A84LLpCwTZ98h1nJxbzoXvb4UhbWCeSmJwnkCXY7JFnK");
+declare_id!("GahY5Vp6SZ7zCHzECNa3fm8CfKdP4dvHaSoovGJtGr8i");
 #[cfg(feature = "devnet")]
 declare_id!("bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym");
 
@@ -94,7 +94,11 @@ pub const MAX_MILESTONES: usize = 5;
 /// Number of milestones that must be released before project completes.
 /// Derived from last non-zero percentage. [50,50,0,0,0] -> 2.
 pub fn effective_milestone_count(percentages: &[u16; MAX_MILESTONES]) -> usize {
-    percentages.iter().rposition(|&p| p > 0).map(|i| i + 1).unwrap_or(1)
+    percentages
+        .iter()
+        .rposition(|&p| p > 0)
+        .map(|i| i + 1)
+        .unwrap_or(1)
 }
 
 /// Validates that the signer is the program's upgrade authority by reading upgradeable loader
@@ -227,7 +231,10 @@ pub mod project_escrow {
         milestone_percentages: [u16; MAX_MILESTONES],
         deadline: i64,
     ) -> Result<()> {
-        require!(name.len() <= MAX_PROJECT_NAME_LEN, EscrowError::ProjectNameTooLong);
+        require!(
+            name.len() <= MAX_PROJECT_NAME_LEN,
+            EscrowError::ProjectNameTooLong
+        );
         let sum: u16 = milestone_percentages.iter().sum();
         require!(sum == 100, EscrowError::InvalidMilestonePercentages);
         let project = &mut ctx.accounts.project;
@@ -430,7 +437,9 @@ pub mod project_escrow {
             .current_milestone
             .checked_add(1)
             .ok_or(EscrowError::Overflow)?;
-        if project.current_milestone as usize >= effective_milestone_count(&project.milestone_percentages) {
+        if project.current_milestone as usize
+            >= effective_milestone_count(&project.milestone_percentages)
+        {
             project.status = ProjectStatus::Completed;
         }
         msg!("Released milestone {}: {} $TASTE", idx, amount);
@@ -444,7 +453,8 @@ pub mod project_escrow {
             EscrowError::ProjectNotActive
         );
         require!(
-            project.current_milestone as usize >= effective_milestone_count(&project.milestone_percentages),
+            project.current_milestone as usize
+                >= effective_milestone_count(&project.milestone_percentages),
             EscrowError::NotAllMilestonesReleased
         );
         project.status = ProjectStatus::Completed;
@@ -471,7 +481,8 @@ pub mod project_escrow {
             EscrowError::ProjectNotActive
         );
         require!(
-            project.current_milestone as usize >= effective_milestone_count(&project.milestone_percentages),
+            project.current_milestone as usize
+                >= effective_milestone_count(&project.milestone_percentages),
             EscrowError::NotAllMilestonesReleased
         );
         project.status = ProjectStatus::Completed;

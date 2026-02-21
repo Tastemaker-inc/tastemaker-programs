@@ -6,6 +6,9 @@
     "lint:fix": "prettier */*.js \"*.js\" -w",
     "test": "anchor test",
     "test:full": "bash ./scripts/run-test-full.sh",
+    "test:grep": "bash scripts/run-test-grep.sh",
+    "test:config": "bash scripts/run-test-grep.sh \"project_escrow config|governance config|rwa_token config\"",
+    "test:taste": "bash scripts/run-test-grep.sh \"project_escrow config|governance config|rwa_token config|taste_token\"",
     "init-taste-mint": "ts-node scripts/init-taste-mint.ts",
     "init-escrow-config": "ts-node scripts/init-escrow-config.ts",
     "init-governance-config": "ts-node scripts/init-governance-config.ts",
@@ -15,7 +18,7 @@
     "initialize-rwa-metadata": "ts-node scripts/initialize-rwa-metadata.ts"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "0.32.0",
+    "@coral-xyz/anchor": "0.32.1",
     "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
     "@metaplex-foundation/umi": "^1.2.0",
     "@metaplex-foundation/umi-bundle-defaults": "^1.2.0",

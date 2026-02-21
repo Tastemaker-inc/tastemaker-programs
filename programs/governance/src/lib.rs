@@ -9,7 +9,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("2hfuv5tWYuAfMxgKDAcUMU7tEQdFhWALRqakB8BagHev");
+declare_id!("Cc68jGVH2x1fakbK9WoSfRSDa6qFuvShf2SBjrN4J2ir");
 #[cfg(feature = "devnet")]
 declare_id!("AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK");
 
@@ -402,7 +402,9 @@ pub mod governance {
 
             // If project just completed (last milestone released), auto-init RWA mint (idempotent).
             if ctx.accounts.project.current_milestone as usize
-                >= project_escrow::effective_milestone_count(&ctx.accounts.project.milestone_percentages)
+                >= project_escrow::effective_milestone_count(
+                    &ctx.accounts.project.milestone_percentages,
+                )
                 && ctx.accounts.rwa_state.lamports() == 0
             {
                 let rwa_cpi_ctx = CpiContext::new_with_signer(
@@ -416,7 +418,9 @@ pub mod governance {
                         rwa_config: ctx.accounts.rwa_config.to_account_info(),
                         rwa_mint: ctx.accounts.rwa_mint.to_account_info(),
                         rwa_mint_authority: ctx.accounts.rwa_mint_authority.to_account_info(),
-                        rwa_transfer_hook_program: ctx.accounts.rwa_transfer_hook_program
+                        rwa_transfer_hook_program: ctx
+                            .accounts
+                            .rwa_transfer_hook_program
                             .to_account_info(),
                         extra_account_metas: ctx.accounts.rwa_extra_account_metas.to_account_info(),
                         token_program: ctx.accounts.token_program.to_account_info(),
@@ -430,7 +434,8 @@ pub mod governance {
 
             // If RWA mint was just created (or exists) and metadata not yet set, init Metaplex metadata.
             let rwa_state_lamports = ctx.accounts.rwa_state.lamports();
-            let metadata_guard_uninit = ctx.accounts.rwa_metadata_guard.owner == &anchor_lang::system_program::ID;
+            let metadata_guard_uninit =
+                ctx.accounts.rwa_metadata_guard.owner == &anchor_lang::system_program::ID;
             if rwa_state_lamports > 0 && metadata_guard_uninit {
                 let meta_cpi_ctx = CpiContext::new_with_signer(
                     ctx.accounts.rwa_token_program.to_account_info(),
@@ -445,7 +450,10 @@ pub mod governance {
                         metadata_guard: ctx.accounts.rwa_metadata_guard.to_account_info(),
                         metadata: ctx.accounts.rwa_metadata.to_account_info(),
                         update_authority: ctx.accounts.artist.to_account_info(),
-                        token_metadata_program: ctx.accounts.token_metadata_program.to_account_info(),
+                        token_metadata_program: ctx
+                            .accounts
+                            .token_metadata_program
+                            .to_account_info(),
                         system_program: ctx.accounts.system_program.to_account_info(),
                         sysvar_instructions: ctx.accounts.sysvar_instructions.to_account_info(),
                         token_program: ctx.accounts.token_program.to_account_info(),

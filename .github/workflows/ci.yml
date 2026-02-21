@@ -60,6 +60,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Ensure program keypairs exist (for fresh clone or cache miss)
+        run: |
+          mkdir -p target/deploy
+          for program in governance otc_market project_escrow revenue_distribution rwa_token taste_token; do
+            if [ ! -f "target/deploy/${program}-keypair.json" ]; then
+              solana-keygen new -o "target/deploy/${program}-keypair.json" --no-bip39-passphrase --force
+            fi
+          done
+
       - name: Sync program keys for CI
         run: anchor keys sync
 

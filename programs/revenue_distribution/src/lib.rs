@@ -8,7 +8,7 @@ use project_escrow::{Project, ProjectStatus};
 use rwa_token::RwaState;
 
 #[cfg(not(feature = "devnet"))]
-declare_id!("4RXKpphnRMC4yTpkjVLKQqMgFdHere6kC3BjZssPQmfR");
+declare_id!("GyagQe3FXKyLeuEurSTvmCtKAzjUV7xGFgo8TSSvJLbS");
 #[cfg(feature = "devnet")]
 declare_id!("6bckDfoEDZWgZXU66fL2Sq6pjFmqxk3JVZEs2YVYMLc3");
 
@@ -35,10 +35,7 @@ pub mod revenue_distribution {
         config.total_distributed = 0;
         config.epoch_count = 0;
 
-        msg!(
-            "Revenue config initialized for project {}",
-            config.project
-        );
+        msg!("Revenue config initialized for project {}", config.project);
         Ok(())
     }
 
@@ -95,10 +92,7 @@ pub mod revenue_distribution {
         let config = &ctx.accounts.rev_config;
         let epoch = &mut ctx.accounts.distribution_epoch;
 
-        require!(
-            epoch.project == config.project,
-            RevError::EpochMismatch
-        );
+        require!(epoch.project == config.project, RevError::EpochMismatch);
         require!(epoch.total_rwa_supply > 0, RevError::ZeroSupply);
 
         let holder_balance = ctx.accounts.holder_rwa_account.amount;
@@ -118,13 +112,17 @@ pub mod revenue_distribution {
 
         ctx.accounts.holder_claim.claimed = true;
         ctx.accounts.holder_claim.amount = share;
-        epoch.claimed_count = epoch.claimed_count.checked_add(1).ok_or(RevError::Overflow)?;
-        epoch.total_claimed = epoch.total_claimed.checked_add(share).ok_or(RevError::Overflow)?;
+        epoch.claimed_count = epoch
+            .claimed_count
+            .checked_add(1)
+            .ok_or(RevError::Overflow)?;
+        epoch.total_claimed = epoch
+            .total_claimed
+            .checked_add(share)
+            .ok_or(RevError::Overflow)?;
 
-        let (vault_authority, bump) = Pubkey::find_program_address(
-            &[b"rev_vault", config.project.as_ref()],
-            ctx.program_id,
-        );
+        let (vault_authority, bump) =
+            Pubkey::find_program_address(&[b"rev_vault", config.project.as_ref()], ctx.program_id);
         let seeds: &[&[u8]] = &[b"rev_vault", config.project.as_ref(), &[bump]];
 
         anchor_spl::token_interface::transfer_checked(
@@ -160,10 +158,7 @@ pub mod revenue_distribution {
             ctx.accounts.authority.key() == config.artist_authority,
             RevError::NotArtist
         );
-        require!(
-            epoch.project == config.project,
-            RevError::EpochMismatch
-        );
+        require!(epoch.project == config.project, RevError::EpochMismatch);
 
         let remaining = epoch.amount.saturating_sub(epoch.total_claimed);
 
@@ -190,7 +185,11 @@ pub mod revenue_distribution {
             )?;
         }
 
-        msg!("Closed epoch {} for project {}", epoch.epoch_index, config.project);
+        msg!(
+            "Closed epoch {} for project {}",
+            epoch.epoch_index,
+            config.project
+        );
         Ok(())
     }
 }

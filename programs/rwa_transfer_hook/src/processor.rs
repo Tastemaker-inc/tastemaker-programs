@@ -8,13 +8,9 @@ use {
     solana_pubkey::Pubkey,
     solana_system_interface::instruction as system_instruction,
     spl_tlv_account_resolution::{account::ExtraAccountMeta, state::ExtraAccountMetaList},
-    spl_token_2022::{
-        extension::StateWithExtensions,
-        state::Mint,
-    },
+    spl_token_2022::{extension::StateWithExtensions, state::Mint},
     spl_transfer_hook_interface::{
-        collect_extra_account_metas_signer_seeds,
-        get_extra_account_metas_address,
+        collect_extra_account_metas_signer_seeds, get_extra_account_metas_address,
         get_extra_account_metas_address_and_bump_seed,
         instruction::{ExecuteInstruction, TransferHookInstruction},
     },
@@ -49,7 +45,10 @@ pub fn process_execute(
         &data,
     )?;
 
-    msg!("RWA transfer hook: pass-through approved (amount: {})", amount);
+    msg!(
+        "RWA transfer hook: pass-through approved (amount: {})",
+        amount
+    );
     Ok(())
 }
 
@@ -78,8 +77,8 @@ pub fn process_initialize_extra_account_meta_list(
     let mint_data = mint_info.try_borrow_data()?;
     let mint = StateWithExtensions::<Mint>::unpack(&mint_data)?;
     let mint_authority: Option<Pubkey> = mint.base.mint_authority.into();
-    let mint_authority = mint_authority
-        .ok_or(solana_program_error::ProgramError::InvalidAccountData)?;
+    let mint_authority =
+        mint_authority.ok_or(solana_program_error::ProgramError::InvalidAccountData)?;
 
     if !authority_info.is_signer {
         return Err(solana_program_error::ProgramError::MissingRequiredSignature);
@@ -109,10 +108,7 @@ pub fn process_initialize_extra_account_meta_list(
     )?;
 
     invoke_signed(
-        &system_instruction::allocate(
-            extra_account_metas_info.key,
-            account_size as u64,
-        ),
+        &system_instruction::allocate(extra_account_metas_info.key, account_size as u64),
         core::slice::from_ref(extra_account_metas_info),
         &[&signer_seeds],
     )?;

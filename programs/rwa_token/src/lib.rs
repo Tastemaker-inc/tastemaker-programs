@@ -80,21 +80,18 @@ fn create_rwa_mint_with_transfer_hook<'info>(
     project_key: Pubkey,
     program_id: &Pubkey,
 ) -> Result<()> {
-    let mint_len = ExtensionType::try_calculate_account_len::<SplMint>(&[ExtensionType::TransferHook])
-        .map_err(|_| ProgramError::InvalidAccountData)?;
+    let mint_len =
+        ExtensionType::try_calculate_account_len::<SplMint>(&[ExtensionType::TransferHook])
+            .map_err(|_| ProgramError::InvalidAccountData)?;
     let lamports = Rent::get()?.minimum_balance(mint_len);
 
-    let (_, mint_bump) = Pubkey::find_program_address(
-        &[b"rwa_mint", project_key.as_ref()],
-        program_id,
-    );
+    let (_, mint_bump) =
+        Pubkey::find_program_address(&[b"rwa_mint", project_key.as_ref()], program_id);
     let mint_seeds: &[&[u8]] = &[b"rwa_mint", project_key.as_ref(), &[mint_bump]];
     let mint_signer_seeds: &[&[&[u8]]] = &[mint_seeds];
 
-    let (_, auth_bump) = Pubkey::find_program_address(
-        &[b"rwa_mint_authority", project_key.as_ref()],
-        program_id,
-    );
+    let (_, auth_bump) =
+        Pubkey::find_program_address(&[b"rwa_mint_authority", project_key.as_ref()], program_id);
     let auth_seeds: &[&[u8]] = &[b"rwa_mint_authority", project_key.as_ref(), &[auth_bump]];
     let auth_signer_seeds: &[&[&[u8]]] = &[auth_seeds];
 
@@ -107,11 +104,7 @@ fn create_rwa_mint_with_transfer_hook<'info>(
             mint_len as u64,
             &TOKEN_2022_PROGRAM_ID,
         ),
-        &[
-            payer.clone(),
-            rwa_mint.clone(),
-            system_program.clone(),
-        ],
+        &[payer.clone(), rwa_mint.clone(), system_program.clone()],
         mint_signer_seeds,
     )?;
 
@@ -147,7 +140,10 @@ fn create_rwa_mint_with_transfer_hook<'info>(
     // 4. Initialize extra-account-metas (empty = pass-through) on rwa_transfer_hook.
     //    The hook's processor expects a 5th account (payer) to fund the PDA for rent exemption.
     let extra_meta_pda = get_extra_account_metas_address(rwa_mint.key, &transfer_hook_program_id);
-    require!(extra_account_metas.key() == extra_meta_pda, RwaError::InvalidExtraAccountMetas);
+    require!(
+        extra_account_metas.key() == extra_meta_pda,
+        RwaError::InvalidExtraAccountMetas
+    );
     let mut init_extra_ix = create_init_extra_meta_ix(
         &transfer_hook_program_id,
         &extra_meta_pda,
@@ -155,9 +151,11 @@ fn create_rwa_mint_with_transfer_hook<'info>(
         rwa_mint_authority.key,
         &[],
     );
-    init_extra_ix.accounts.push(
-        anchor_lang::solana_program::instruction::AccountMeta::new(*payer.key, true),
-    );
+    init_extra_ix
+        .accounts
+        .push(anchor_lang::solana_program::instruction::AccountMeta::new(
+            *payer.key, true,
+        ));
     anchor_lang::solana_program::program::invoke_signed(
         &init_extra_ix,
         &[
@@ -184,7 +182,7 @@ use project_escrow::{Backer, Project, ProjectStatus};
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("2qqPrgzUBfG1s1gCQtNtp3ZhMDqJNhmQ6J9uo4Mbuq9h");
+declare_id!("CjfnmvHpv9hK3q5dtSCR2ok35BaZATp7PaYCVn8fXY1c");
 #[cfg(feature = "devnet")]
 declare_id!("GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE");
 
@@ -357,7 +355,10 @@ pub mod rwa_token {
             revenue_split_bps.saturating_add(artist_split_bps) <= 10_000,
             RwaError::InvalidSplit
         );
-        require!(terms_uri.len() <= MAX_TERMS_URI_LEN, RwaError::TermsUriTooLong);
+        require!(
+            terms_uri.len() <= MAX_TERMS_URI_LEN,
+            RwaError::TermsUriTooLong
+        );
         require!(
             jurisdiction.len() <= MAX_JURISDICTION_LEN,
             RwaError::JurisdictionTooLong
@@ -656,8 +657,7 @@ pub mod rwa_token {
         let symbol = "RWA".to_string();
         let uri = format!(
             "{}/api/rwa-metadata?project={}",
-            RWA_METADATA_BASE_URL,
-            state.project
+            RWA_METADATA_BASE_URL, state.project
         );
         require!(uri.len() <= MAX_URI_LEN, RwaError::MetadataUriTooLong);
 

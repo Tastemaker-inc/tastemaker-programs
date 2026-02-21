@@ -1,11 +1,7 @@
 //! Program entrypoint.
 
 use {
-    solana_program::{
-        account_info::AccountInfo,
-        entrypoint::ProgramResult,
-        pubkey::Pubkey,
-    },
+    solana_program::{account_info::AccountInfo, entrypoint::ProgramResult, pubkey::Pubkey},
     spl_transfer_hook_interface::instruction::TransferHookInstruction,
 };
 
