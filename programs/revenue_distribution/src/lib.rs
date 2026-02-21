@@ -10,7 +10,7 @@ use rwa_token::RwaState;
 #[cfg(not(feature = "devnet"))]
 declare_id!("GyagQe3FXKyLeuEurSTvmCtKAzjUV7xGFgo8TSSvJLbS");
 #[cfg(feature = "devnet")]
-declare_id!("6bckDfoEDZWgZXU66fL2Sq6pjFmqxk3JVZEs2YVYMLc3");
+declare_id!("C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK");
 
 #[program]
 pub mod revenue_distribution {

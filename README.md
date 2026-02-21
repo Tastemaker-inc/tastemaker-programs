@@ -71,9 +71,9 @@ See `public_docs/README.md` for public runbooks and flow docs.
 | project_escrow        | `bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym` | [Explorer](https://explorer.solana.com/address/bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym?cluster=devnet) |
 | governance            | `AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK` | [Explorer](https://explorer.solana.com/address/AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK?cluster=devnet) |
 | rwa_token             | `GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE` | [Explorer](https://explorer.solana.com/address/GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE?cluster=devnet) |
-| revenue_distribution  | `6bckDfoEDZWgZXU66fL2Sq6pjFmqxk3JVZEs2YVYMLc3` | [Explorer](https://explorer.solana.com/address/6bckDfoEDZWgZXU66fL2Sq6pjFmqxk3JVZEs2YVYMLc3?cluster=devnet) |
+| revenue_distribution  | `C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK` | [Explorer](https://explorer.solana.com/address/C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK?cluster=devnet) |
 | otc_market            | `6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN` | [Explorer](https://explorer.solana.com/address/6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN?cluster=devnet) |
-| rwa_transfer_hook     | `56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn` | [Explorer](https://explorer.solana.com/address/56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn?cluster=devnet) |
+| rwa_transfer_hook     | `HAC2Q2ecWgDXHt34bs1afuGqUsKfxycqd2MXuWHkRgRj` | [Explorer](https://explorer.solana.com/address/HAC2Q2ecWgDXHt34bs1afuGqUsKfxycqd2MXuWHkRgRj?cluster=devnet) |
 
 All devnet programs use upgrade authority `F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU`. To verify (confirm `Last Deployed In Slot` and `Authority`):
 
@@ -82,9 +82,9 @@ solana program show 2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo --url devnet
 solana program show bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym --url devnet
 solana program show AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK --url devnet
 solana program show GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE --url devnet
-solana program show 6bckDfoEDZWgZXU66fL2Sq6pjFmqxk3JVZEs2YVYMLc3 --url devnet
+solana program show C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK --url devnet
 solana program show 6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN --url devnet
-solana program show 56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn --url devnet
+solana program show HAC2Q2ecWgDXHt34bs1afuGqUsKfxycqd2MXuWHkRgRj --url devnet
 ```
 
 Programs must be deployed to devnet for the Explorer links to show program data.

@@ -9,7 +9,7 @@
 #[cfg(not(feature = "devnet"))]
 solana_pubkey::declare_id!("56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn");
 #[cfg(feature = "devnet")]
-solana_pubkey::declare_id!("56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn");
+solana_pubkey::declare_id!("HAC2Q2ecWgDXHt34bs1afuGqUsKfxycqd2MXuWHkRgRj");
 
 pub mod processor;
 

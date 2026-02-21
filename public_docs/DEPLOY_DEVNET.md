@@ -37,6 +37,9 @@ Use **`~/.config/solana/devnet-deploy.json`** as `<DEPLOY_KEYPAIR>` (pubkey `F5u
    cargo build-sbf --manifest-path programs/rwa_token/Cargo.toml --features devnet --sbf-out-dir target/deploy
    cargo build-sbf --manifest-path programs/governance/Cargo.toml --features devnet --sbf-out-dir target/deploy
    cargo build-sbf --manifest-path programs/taste_token/Cargo.toml --features devnet --sbf-out-dir target/deploy
+   cargo build-sbf --manifest-path programs/otc_market/Cargo.toml --features devnet --sbf-out-dir target/deploy
+   cargo build-sbf --manifest-path programs/revenue_distribution/Cargo.toml --features devnet --sbf-out-dir target/deploy
+   cargo build-sbf --manifest-path programs/rwa_transfer_hook/Cargo.toml --features devnet --sbf-out-dir target/deploy
    ```
 3. Deploy/upgrade programs on devnet (use these exact devnet program IDs from `Anchor.toml [programs.devnet]`):
    - `solana program deploy target/deploy/project_escrow.so --program-id bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym --upgrade-authority ~/.config/solana/devnet-deploy.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
@@ -49,7 +52,9 @@ Use **`~/.config/solana/devnet-deploy.json`** as `<DEPLOY_KEYPAIR>` (pubkey `F5u
    - `solana program show bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym --url devnet`
    - `solana program show AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK --url devnet`
    - `solana program show GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE --url devnet`
+   - `solana program show C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK --url devnet`
    - `solana program show 6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN --url devnet`
+   - `solana program show HAC2Q2ecWgDXHt34bs1afuGqUsKfxycqd2MXuWHkRgRj --url devnet`
 5. Confirm IDs in:
    - `Anchor.toml`
    - program `declare_id!`
@@ -69,6 +74,33 @@ After deploying, run these once so devnet can use short voting periods and early
      `npm run backfill-vote-weight-pdas -- <PROJECT_PDA>`
    - Same env as above; optional `PROJECT_ESCROW_PROGRAM_ID` to override.
    - Without this, early finalize will not be available for those projects (finalize still works after `end_ts`).
+
+## First-time deploy (program keypairs)
+
+Initial deploy requires a **program keypair** whose pubkey becomes the program ID. Devnet program keypairs are stored with the deploy authority:
+
+- **revenue_distribution**: `~/.config/solana/revenue_distribution-devnet.json` → program ID `C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK`
+- **rwa_transfer_hook**: `~/.config/solana/rwa_transfer_hook-devnet.json` → program ID `HAC2Q2ecWgDXHt34bs1afuGqUsKfxycqd2MXuWHkRgRj`
+
+Once deployed, future updates are normal upgrades (deploy authority only). Commands:
+
+```bash
+# revenue_distribution
+cargo build-sbf --manifest-path programs/revenue_distribution/Cargo.toml --features devnet --sbf-out-dir target/deploy
+solana program deploy target/deploy/revenue_distribution.so \
+  --program-id ~/.config/solana/revenue_distribution-devnet.json \
+  --keypair ~/.config/solana/devnet-deploy.json \
+  --upgrade-authority ~/.config/solana/devnet-deploy.json \
+  --url devnet
+
+# rwa_transfer_hook (build with devnet feature so binary has devnet declare_id)
+cargo build-sbf --manifest-path programs/rwa_transfer_hook/Cargo.toml --features devnet --sbf-out-dir target/deploy
+solana program deploy target/deploy/rwa_transfer_hook.so \
+  --program-id ~/.config/solana/rwa_transfer_hook-devnet.json \
+  --keypair ~/.config/solana/devnet-deploy.json \
+  --upgrade-authority ~/.config/solana/devnet-deploy.json \
+  --url devnet
+```
 
 ## Notes
 

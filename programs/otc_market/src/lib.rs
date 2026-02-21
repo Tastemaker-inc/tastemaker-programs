@@ -4,7 +4,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, TransferChecked};
 
+#[cfg(not(feature = "devnet"))]
 declare_id!("65F9kfScLhCBH6RF7UH4HEgCbTupcVWP3BpxL3cL3gge");
+#[cfg(feature = "devnet")]
+declare_id!("6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN");
 
 /// SPL Token-2022 program ID. Marketplace accepts only Token-2022 assets and quote.
 pub static TOKEN_2022_PROGRAM_ID: Pubkey = pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
