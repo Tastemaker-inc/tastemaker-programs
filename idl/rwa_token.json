@@ -75,6 +75,194 @@
           }
         },
         {
+          "name": "receipt_mint",
+          "docs": [
+            "Receipt mint PDA from project_escrow [b\"receipt\", project, backer]; validated in instruction. Mut for burn (supply decrement)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "receipt_token_account",
+          "docs": [
+            "Backer's token account for the receipt mint; must hold >= 1. Burned in instruction."
+          ],
+          "writable": true
+        },
+        {
+          "name": "project_escrow_program",
+          "docs": [
+            "Project escrow program (validated must equal project_escrow::ID for PDA derivation)."
+          ]
+        },
+        {
+          "name": "claim_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              },
+              {
+                "kind": "account",
+                "path": "backer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "backer_token_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "backer"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "rwa_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_rwa_tokens_legacy",
+      "docs": [
+        "Claim RWA tokens for backers who funded before on-chain receipts existed (no receipt to burn)."
+      ],
+      "discriminator": [
+        56,
+        85,
+        198,
+        239,
+        51,
+        130,
+        188,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "backer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "backer_account"
+        },
+        {
+          "name": "project"
+        },
+        {
+          "name": "rwa_state",
+          "writable": true
+        },
+        {
+          "name": "rwa_mint",
+          "writable": true
+        },
+        {
+          "name": "rwa_mint_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
           "name": "claim_record",
           "writable": true,
           "pda": {
@@ -197,6 +385,410 @@
       "args": []
     },
     {
+      "name": "initialize_rwa_config",
+      "docs": [
+        "One-time init: store the transfer hook program ID. Only the program upgrade authority can call this."
+      ],
+      "discriminator": [
+        165,
+        125,
+        131,
+        8,
+        200,
+        122,
+        181,
+        132
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Must be the program upgrade authority (validated in instruction)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "rwa_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_account",
+          "docs": [
+            "Program account (executable) for this program. Used to read programdata address."
+          ]
+        },
+        {
+          "name": "program_data_account",
+          "docs": [
+            "ProgramData account for this program. Used to read upgrade_authority_address."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "transfer_hook_program_id",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "initialize_rwa_metadata",
+      "docs": [
+        "One-time init of Metaplex Token Metadata for the RWA mint. Callable only by `rwa_state.authority`.",
+        "Name/symbol/uri are bounded; second call fails (metadata guard prevents re-init)."
+      ],
+      "discriminator": [
+        210,
+        215,
+        72,
+        25,
+        228,
+        62,
+        106,
+        223
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "rwa_state"
+        },
+        {
+          "name": "rwa_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rwa_mint_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata_guard",
+          "docs": [
+            "One-time guard: init here so second call fails (account already exists)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata",
+          "docs": [
+            "Metaplex metadata PDA (['metadata', MPL_TOKEN_METADATA_ID, mint]); validated in handler."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_metadata_program",
+          "docs": [
+            "Metaplex Token Metadata program"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "sysvar_instructions",
+          "docs": [
+            "Sysvar Instructions (required by Metaplex CreateV1)"
+          ]
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "symbol",
+          "type": "string"
+        },
+        {
+          "name": "uri",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "initialize_rwa_metadata_by_governance",
+      "docs": [
+        "Called by governance when the last milestone is released, after initialize_rwa_mint_by_governance.",
+        "Creates Metaplex metadata so wallets can display name, symbol, and image.",
+        "Only the config's governance_release_authority may call this."
+      ],
+      "discriminator": [
+        66,
+        192,
+        224,
+        88,
+        244,
+        100,
+        140,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "release_authority",
+          "docs": [
+            "Must equal config.governance_release_authority (validated in handler)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "project"
+        },
+        {
+          "name": "rwa_state"
+        },
+        {
+          "name": "rwa_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rwa_mint_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata_guard",
+          "docs": [
+            "One-time guard: init here so second call fails (account already exists)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata",
+          "docs": [
+            "Metaplex metadata PDA (['metadata', MPL_TOKEN_METADATA_ID, mint]); validated in handler."
+          ],
+          "writable": true
+        },
+        {
+          "name": "update_authority",
+          "docs": [
+            "Artist wallet (rwa_state.authority); used as Metaplex update_authority.",
+            "Must be Signer so the CPI account meta propagates is_signer=true through",
+            "the governance -> rwa_token -> Metaplex CPI chain (Anchor CPI codegen",
+            "hardcodes is_signer from the type, ignoring AccountInfo.is_signer)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "token_metadata_program",
+          "docs": [
+            "Metaplex Token Metadata program"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "sysvar_instructions",
+          "docs": [
+            "Sysvar Instructions (required by Metaplex CreateV1)"
+          ]
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "initialize_rwa_mint",
       "discriminator": [
         38,
@@ -244,8 +836,7 @@
           }
         },
         {
-          "name": "rwa_mint",
-          "writable": true,
+          "name": "rwa_config",
           "pda": {
             "seeds": [
               {
@@ -255,18 +846,23 @@
                   119,
                   97,
                   95,
-                  109,
-                  105,
+                  99,
+                  111,
                   110,
-                  116
+                  102,
+                  105,
+                  103
                 ]
-              },
-              {
-                "kind": "account",
-                "path": "project"
               }
             ]
           }
+        },
+        {
+          "name": "rwa_mint",
+          "docs": [
+            "Created manually with TransferHook extension; address validated in handler."
+          ],
+          "writable": true
         },
         {
           "name": "rwa_mint_authority",
@@ -303,6 +899,19 @@
           }
         },
         {
+          "name": "rwa_transfer_hook_program",
+          "docs": [
+            "rwa_transfer_hook program (for InitializeExtraAccountMetaList CPI)"
+          ]
+        },
+        {
+          "name": "extra_account_metas",
+          "docs": [
+            "Extra-account-metas PDA [b\"extra-account-metas\", rwa_mint]; validated in handler."
+          ],
+          "writable": true
+        },
+        {
           "name": "token_program"
         },
         {
@@ -314,6 +923,282 @@
         {
           "name": "total_supply",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_rwa_mint_by_governance",
+      "docs": [
+        "Called by governance when the last milestone is released (project becomes Completed).",
+        "Only the config's governance_release_authority may call this."
+      ],
+      "discriminator": [
+        157,
+        155,
+        116,
+        56,
+        93,
+        163,
+        237,
+        240
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "release_authority",
+          "docs": [
+            "Must equal config.governance_release_authority (validated in handler)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "project"
+        },
+        {
+          "name": "rwa_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rwa_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "rwa_mint",
+          "docs": [
+            "Created manually with TransferHook extension; address validated in handler."
+          ],
+          "writable": true
+        },
+        {
+          "name": "rwa_mint_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rwa_transfer_hook_program",
+          "docs": [
+            "rwa_transfer_hook program (for InitializeExtraAccountMetaList CPI)"
+          ]
+        },
+        {
+          "name": "extra_account_metas",
+          "docs": [
+            "Extra-account-metas PDA [b\"extra-account-metas\", rwa_mint]; validated in handler."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "total_supply",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_rwa_rights",
+      "docs": [
+        "One-time init of on-chain rights specification. Callable by rwa_state.authority after RWA mint exists."
+      ],
+      "discriminator": [
+        177,
+        231,
+        25,
+        163,
+        249,
+        212,
+        200,
+        166
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "rwa_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rwa_rights",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  114,
+                  105,
+                  103,
+                  104,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "rights_type",
+          "type": {
+            "defined": {
+              "name": "RightsType"
+            }
+          }
+        },
+        {
+          "name": "revenue_split_bps",
+          "type": "u16"
+        },
+        {
+          "name": "artist_split_bps",
+          "type": "u16"
+        },
+        {
+          "name": "duration_secs",
+          "type": "i64"
+        },
+        {
+          "name": "effective_from",
+          "type": "i64"
+        },
+        {
+          "name": "terms_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "terms_uri",
+          "type": "string"
+        },
+        {
+          "name": "jurisdiction",
+          "type": "string"
         }
       ]
     }
@@ -346,6 +1231,19 @@
       ]
     },
     {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
       "name": "Project",
       "discriminator": [
         205,
@@ -356,6 +1254,45 @@
         247,
         142,
         19
+      ]
+    },
+    {
+      "name": "RwaConfig",
+      "discriminator": [
+        103,
+        48,
+        215,
+        148,
+        74,
+        15,
+        31,
+        129
+      ]
+    },
+    {
+      "name": "RwaMetadataGuard",
+      "discriminator": [
+        213,
+        211,
+        182,
+        145,
+        175,
+        139,
+        82,
+        162
+      ]
+    },
+    {
+      "name": "RwaRights",
+      "discriminator": [
+        141,
+        114,
+        204,
+        40,
+        56,
+        95,
+        76,
+        253
       ]
     },
     {
@@ -427,6 +1364,81 @@
       "code": 6010,
       "name": "ProjectNotCompleted",
       "msg": "Project not completed"
+    },
+    {
+      "code": 6011,
+      "name": "MetadataNameTooLong",
+      "msg": "Metadata name too long"
+    },
+    {
+      "code": 6012,
+      "name": "MetadataSymbolTooLong",
+      "msg": "Metadata symbol too long"
+    },
+    {
+      "code": 6013,
+      "name": "MetadataUriTooLong",
+      "msg": "Metadata URI too long"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidMetadataAccount",
+      "msg": "Invalid metadata account"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidTokenMetadataProgram",
+      "msg": "Invalid token metadata program"
+    },
+    {
+      "code": 6016,
+      "name": "NotReleaseAuthority",
+      "msg": "Signer is not the governance release authority"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidReceipt",
+      "msg": "Receipt mint or token account invalid; must hold 1 receipt to claim"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidSplit",
+      "msg": "Revenue split + artist split must not exceed 10000 bps"
+    },
+    {
+      "code": 6019,
+      "name": "TermsUriTooLong",
+      "msg": "Terms URI too long"
+    },
+    {
+      "code": 6020,
+      "name": "JurisdictionTooLong",
+      "msg": "Jurisdiction string too long"
+    },
+    {
+      "code": 6021,
+      "name": "NotUpgradeAuthority",
+      "msg": "Only program upgrade authority can initialize RwaConfig"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidExtraAccountMetas",
+      "msg": "Extra account metas PDA does not match expected address"
+    },
+    {
+      "code": 6023,
+      "name": "InvalidTokenProgram",
+      "msg": "Token program must be Token-2022 for TransferHook mints"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidMintPda",
+      "msg": "RWA mint account does not match expected PDA"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidTransferHookProgram",
+      "msg": "Transfer hook program does not match RwaConfig"
     }
   ],
   "types": [
@@ -467,6 +1479,21 @@
       }
     },
     {
+      "name": "Config",
+      "docs": [
+        "One-time config: stores the governance release PDA. ReleaseMilestone/CompleteProject validate against this."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "governance_release_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "Project",
       "type": {
         "kind": "struct",
@@ -474,6 +1501,10 @@
           {
             "name": "artist",
             "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
           },
           {
             "name": "goal",
@@ -532,6 +1563,107 @@
           },
           {
             "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RightsType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "MasterRecording"
+          },
+          {
+            "name": "MechanicalRoyalties"
+          },
+          {
+            "name": "ProfitShare"
+          },
+          {
+            "name": "TourRevenue"
+          },
+          {
+            "name": "MerchRevenue"
+          },
+          {
+            "name": "Custom"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RwaConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "transfer_hook_program_id",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RwaMetadataGuard",
+      "docs": [
+        "One-time guard: once this PDA exists, initialize_rwa_metadata cannot run again for this project."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": []
+      }
+    },
+    {
+      "name": "RwaRights",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "project",
+            "type": "pubkey"
+          },
+          {
+            "name": "rights_type",
+            "type": {
+              "defined": {
+                "name": "RightsType"
+              }
+            }
+          },
+          {
+            "name": "revenue_split_bps",
+            "type": "u16"
+          },
+          {
+            "name": "artist_split_bps",
+            "type": "u16"
+          },
+          {
+            "name": "duration_secs",
+            "type": "i64"
+          },
+          {
+            "name": "effective_from",
+            "type": "i64"
+          },
+          {
+            "name": "terms_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "terms_uri",
+            "type": "string"
+          },
+          {
+            "name": "jurisdiction",
+            "type": "string"
           }
         ]
       }

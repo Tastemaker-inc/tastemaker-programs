@@ -1,5 +1,7 @@
 //! TasteMaker per-project RWA token. Mint on project completion; backers claim (pull).
 
+#![allow(clippy::too_many_arguments)]
+
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Burn, Mint, MintTo, TokenAccount, TokenInterface};
 use spl_token_2022::{
@@ -68,6 +70,7 @@ fn require_upgrade_authority(
 
 /// Creates a Token-2022 mint with TransferHook extension at the given PDA, then initializes
 /// the transfer hook's extra-account-metas (empty list for pass-through).
+#[allow(clippy::too_many_arguments)]
 fn create_rwa_mint_with_transfer_hook<'info>(
     payer: &AccountInfo<'info>,
     rwa_mint: &AccountInfo<'info>,
@@ -114,8 +117,7 @@ fn create_rwa_mint_with_transfer_hook<'info>(
         rwa_mint.key,
         Some(*rwa_mint_authority.key),
         Some(transfer_hook_program_id),
-    )
-    .map_err(ProgramError::from)?;
+    )?;
     anchor_lang::solana_program::program::invoke_signed(
         &init_hook_ix,
         &[rwa_mint.clone(), token_program.clone()],
@@ -129,8 +131,7 @@ fn create_rwa_mint_with_transfer_hook<'info>(
         rwa_mint_authority.key,
         None,
         6,
-    )
-    .map_err(ProgramError::from)?;
+    )?;
     anchor_lang::solana_program::program::invoke_signed(
         &init_mint_ix,
         &[rwa_mint.clone(), token_program.clone()],
@@ -376,6 +377,28 @@ pub mod rwa_token {
         rights.jurisdiction = jurisdiction;
 
         msg!("RwaRights initialized for project {}", rights.project);
+        Ok(())
+    }
+
+    /// Update terms_hash and terms_uri (e.g. after a material-edit governance pass). Callable by rwa_state.authority.
+    pub fn update_rwa_rights(
+        ctx: Context<UpdateRwaRights>,
+        new_terms_hash: [u8; 32],
+        new_terms_uri: String,
+    ) -> Result<()> {
+        let state = &ctx.accounts.rwa_state;
+        require!(
+            ctx.accounts.authority.key() == state.authority,
+            RwaError::NotAuthority
+        );
+        require!(
+            new_terms_uri.len() <= MAX_TERMS_URI_LEN,
+            RwaError::TermsUriTooLong
+        );
+        let rights = &mut ctx.accounts.rwa_rights;
+        rights.terms_hash = new_terms_hash;
+        rights.terms_uri = new_terms_uri;
+        msg!("RwaRights updated for project {}", rights.project);
         Ok(())
     }
 
@@ -847,6 +870,25 @@ pub struct InitializeRwaRights<'info> {
 }
 
 #[derive(Accounts)]
+pub struct UpdateRwaRights<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [b"rwa_state", rwa_state.project.as_ref()],
+        bump,
+    )]
+    pub rwa_state: Account<'info, RwaState>,
+
+    #[account(
+        mut,
+        seeds = [b"rwa_rights", rwa_state.project.as_ref()],
+        bump,
+    )]
+    pub rwa_rights: Account<'info, RwaRights>,
+}
+
+#[derive(Accounts)]
 pub struct InitializeRwaMint<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -1182,7 +1224,7 @@ mod tests {
 
     #[test]
     fn test_rwa_rights_string_limits() {
-        assert!(MAX_TERMS_URI_LEN == 200);
-        assert!(MAX_JURISDICTION_LEN == 50);
+        const _: () = assert!(MAX_TERMS_URI_LEN == 200);
+        const _: () = assert!(MAX_JURISDICTION_LEN == 50);
     }
 }

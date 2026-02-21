@@ -146,7 +146,15 @@
         },
         {
           "name": "proposal",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [112, 114, 111, 112, 111, 115, 97, 108] },
+              { "kind": "arg", "path": "project_key" },
+              { "kind": "arg", "path": "milestone_index" },
+              { "kind": "arg", "path": "attempt" }
+            ]
+          }
         },
         {
           "name": "project"
@@ -180,16 +188,19 @@
       ]
     },
     {
-      "name": "finalize_proposal",
+      "name": "finalize_material_edit_proposal",
+      "docs": [
+        "Finalize a material-edit proposal (milestone_index == 255). On pass, CPIs project_escrow::apply_material_edit."
+      ],
       "discriminator": [
-        23,
-        68,
-        51,
-        167,
-        109,
-        173,
-        187,
-        164
+        184,
+        153,
+        42,
+        181,
+        72,
+        253,
+        13,
+        230
       ],
       "accounts": [
         {
@@ -205,6 +216,7 @@
           "docs": [
             "PDA that signs for governance CPI to project_escrow"
           ],
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -233,6 +245,126 @@
           }
         },
         {
+          "name": "escrow_config"
+        },
+        {
+          "name": "project_terms",
+          "docs": [
+            "ProjectTerms PDA (seeds = [b\"project_terms\", project.key()]). May be uninitialized; project_escrow will init_if_needed."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "project_escrow_program",
+          "address": "GahY5Vp6SZ7zCHzECNa3fm8CfKdP4dvHaSoovGJtGr8i"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_terms_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "refund_window_secs",
+          "type": "i64"
+        },
+        {
+          "name": "new_goal",
+          "type": "u64"
+        },
+        {
+          "name": "new_deadline",
+          "type": "i64"
+        },
+        {
+          "name": "new_milestone_percentages",
+          "type": {
+            "array": [
+              "u16",
+              5
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "finalize_proposal",
+      "discriminator": [
+        23,
+        68,
+        51,
+        167,
+        109,
+        173,
+        187,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "project",
+          "writable": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Payer for RWA state/mint init when last milestone is released (optional CPI)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "release_authority",
+          "docs": [
+            "PDA that signs for governance CPI to project_escrow"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  108,
+                  101,
+                  97,
+                  115,
+                  101,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_config",
+          "docs": [
+            "Project escrow config PDA (seeds = [b\"config\"]). Must match project_escrow program's config PDA."
+          ]
+        },
+        {
           "name": "escrow",
           "writable": true
         },
@@ -251,10 +383,209 @@
         },
         {
           "name": "project_escrow_program",
-          "address": "bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym"
+          "address": "GahY5Vp6SZ7zCHzECNa3fm8CfKdP4dvHaSoovGJtGr8i"
+        },
+        {
+          "name": "rwa_state",
+          "docs": [
+            "RWA state PDA (rwa_token). Used only when finalizing last milestone to auto-init RWA mint."
+          ],
+          "writable": true
+        },
+        {
+          "name": "rwa_mint",
+          "docs": [
+            "RWA mint PDA (rwa_token). Used only when finalizing last milestone."
+          ],
+          "writable": true
+        },
+        {
+          "name": "rwa_mint_authority",
+          "docs": [
+            "RWA mint authority PDA (rwa_token)."
+          ]
+        },
+        {
+          "name": "rwa_config",
+          "docs": [
+            "RwaConfig PDA (rwa_token). Stores transfer_hook_program_id for RWA mint creation."
+          ]
+        },
+        {
+          "name": "rwa_transfer_hook_program",
+          "docs": [
+            "rwa_transfer_hook program. Used when auto-initing RWA mint with TransferHook."
+          ]
+        },
+        {
+          "name": "rwa_extra_account_metas",
+          "docs": [
+            "Extra-account-metas PDA [b\"extra-account-metas\", rwa_mint] for rwa_transfer_hook."
+          ],
+          "writable": true
+        },
+        {
+          "name": "rwa_metadata_guard",
+          "docs": [
+            "RWA metadata guard PDA (rwa_token). Used when auto-initing Metaplex metadata after RWA mint."
+          ],
+          "writable": true
+        },
+        {
+          "name": "rwa_metadata",
+          "docs": [
+            "Metaplex metadata PDA for rwa_mint. Used when auto-initing RWA metadata."
+          ],
+          "writable": true
+        },
+        {
+          "name": "artist",
+          "docs": [
+            "Artist wallet (project.artist). Must sign when finalizing last milestone so RWA metadata can use artist as Metaplex update_authority (CPI signer rule)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "token_metadata_program",
+          "docs": [
+            "Metaplex Token Metadata program (metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s)."
+          ]
+        },
+        {
+          "name": "sysvar_instructions",
+          "docs": [
+            "Sysvar Instructions (required by Metaplex CreateV1)."
+          ]
+        },
+        {
+          "name": "rwa_token_program",
+          "address": "CjfnmvHpv9hK3q5dtSCR2ok35BaZATp7PaYCVn8fXY1c"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
+    },
+    {
+      "name": "initialize_config",
+      "docs": [
+        "One-time init: set allow_early_finalize and min_voting_period_secs. Only upgrade authority."
+      ],
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_account"
+        },
+        {
+          "name": "program_data_account"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "allow_early_finalize",
+          "type": "bool"
+        },
+        {
+          "name": "min_voting_period_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "update_config",
+      "docs": [
+        "Update config (allow_early_finalize, min_voting_period_secs). Only upgrade authority."
+      ],
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_account"
+        },
+        {
+          "name": "program_data_account"
+        }
+      ],
+      "args": [
+        {
+          "name": "allow_early_finalize",
+          "type": "bool"
+        },
+        {
+          "name": "min_voting_period_secs",
+          "type": "i64"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -269,6 +600,32 @@
         66,
         118,
         252
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "GovConfig",
+      "discriminator": [
+        25,
+        158,
+        54,
+        41,
+        143,
+        227,
+        58,
+        104
       ]
     },
     {
@@ -327,56 +684,61 @@
   "errors": [
     {
       "code": 6000,
+      "name": "NotUpgradeAuthority",
+      "msg": "Only program upgrade authority can initialize or update config"
+    },
+    {
+      "code": 6001,
       "name": "VotingPeriodTooShort",
       "msg": "Voting period must be at least 24 hours"
     },
     {
-      "code": 6001,
+      "code": 6002,
       "name": "InvalidMilestoneIndex",
       "msg": "Invalid milestone index"
     },
     {
-      "code": 6002,
+      "code": 6003,
       "name": "Overflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6003,
+      "code": 6004,
       "name": "ProposalNotActive",
       "msg": "Proposal is not active"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "VotingEnded",
       "msg": "Voting has ended"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "NoContribution",
       "msg": "No contribution in this project"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "VotingNotEnded",
       "msg": "Voting period has not ended"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "QuorumNotMet",
       "msg": "Quorum not met"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "NotProposalCreator",
       "msg": "Only proposal creator can cancel"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "NotArtist",
       "msg": "Only project artist can create proposals"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "InvalidProposalAttempt",
       "msg": "Invalid proposal attempt"
     }
@@ -407,6 +769,40 @@
       }
     },
     {
+      "name": "Config",
+      "docs": [
+        "One-time config: stores the governance release PDA. ReleaseMilestone/CompleteProject validate against this."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "governance_release_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovConfig",
+      "docs": [
+        "Optional governance config (seeds = [b\"config\"]). When set, allows early finalize and custom min voting period."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "allow_early_finalize",
+            "type": "bool"
+          },
+          {
+            "name": "min_voting_period_secs",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Project",
       "type": {
         "kind": "struct",
@@ -414,6 +810,10 @@
           {
             "name": "artist",
             "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
           },
           {
             "name": "goal",

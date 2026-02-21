@@ -29,7 +29,7 @@ fn process_instruction(
         ),
         TransferHookInstruction::UpdateExtraAccountMetaList { .. } => {
             // For pass-through we don't support update; could add later
-            Err(solana_program::program_error::ProgramError::InvalidInstructionData.into())
+            Err(solana_program::program_error::ProgramError::InvalidInstructionData)
         }
     }
 }

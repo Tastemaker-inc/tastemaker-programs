@@ -1,0 +1,464 @@
+{
+  "address": "6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN",
+  "metadata": {
+    "name": "otc_market",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "TasteMaker OTC marketplace: on-chain offers for IOU/RWA, priced in $TASTE (Token-2022 only)"
+  },
+  "instructions": [
+    {
+      "name": "accept_offer",
+      "docs": [
+        "Accept an open offer: transfer asset and $TASTE between taker and maker.",
+        "For Sell: maker gives asset, taker gives $TASTE. For Buy: maker gives $TASTE, taker gives asset."
+      ],
+      "discriminator": [
+        227,
+        82,
+        234,
+        131,
+        1,
+        18,
+        48,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "taker",
+          "docs": [
+            "Taker: the account accepting the offer (must sign)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "maker",
+          "docs": [
+            "Maker: must sign to authorize transfer of their tokens (asset for Sell, $TASTE for Buy)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "offer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer.maker",
+                "account": "Offer"
+              },
+              {
+                "kind": "account",
+                "path": "offer.nonce",
+                "account": "Offer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_mint"
+        },
+        {
+          "name": "quote_mint",
+          "writable": true
+        },
+        {
+          "name": "maker_asset_ata",
+          "writable": true
+        },
+        {
+          "name": "taker_asset_ata",
+          "writable": true
+        },
+        {
+          "name": "maker_quote_ata",
+          "writable": true
+        },
+        {
+          "name": "taker_quote_ata",
+          "writable": true
+        },
+        {
+          "name": "asset_token_program",
+          "docs": [
+            "Token program for the asset. Must be Token-2022."
+          ]
+        },
+        {
+          "name": "quote_token_program",
+          "docs": [
+            "Token program for the quote ($TASTE). Must be Token-2022."
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_offer",
+      "docs": [
+        "Cancel an open offer. Only the maker can cancel."
+      ],
+      "discriminator": [
+        92,
+        203,
+        223,
+        40,
+        92,
+        89,
+        53,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "maker",
+          "signer": true
+        },
+        {
+          "name": "offer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer.maker",
+                "account": "Offer"
+              },
+              {
+                "kind": "account",
+                "path": "offer.nonce",
+                "account": "Offer"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_offer",
+      "docs": [
+        "Create an offer (sell or buy). Token-2022 only for asset mint and quote mint."
+      ],
+      "discriminator": [
+        237,
+        233,
+        192,
+        168,
+        248,
+        7,
+        249,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "maker",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "maker_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  107,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "maker"
+              }
+            ]
+          }
+        },
+        {
+          "name": "offer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "maker"
+              },
+              {
+                "kind": "account",
+                "path": "maker_state.nonce",
+                "account": "MakerState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset_mint"
+        },
+        {
+          "name": "asset_token_program",
+          "docs": [
+            "Token program for the asset mint. Must be Token-2022."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "offer_type",
+          "type": {
+            "defined": {
+              "name": "OfferType"
+            }
+          }
+        },
+        {
+          "name": "expiry_slot",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Placeholder: no-op init for deploy. Use create_offer / cancel_offer / accept_offer."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "MakerState",
+      "discriminator": [
+        153,
+        108,
+        123,
+        198,
+        57,
+        171,
+        75,
+        12
+      ]
+    },
+    {
+      "name": "Offer",
+      "discriminator": [
+        215,
+        88,
+        60,
+        71,
+        170,
+        162,
+        73,
+        229
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAmount",
+      "msg": "Amount must be positive"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidPrice",
+      "msg": "Price must be positive"
+    },
+    {
+      "code": 6002,
+      "name": "OfferNotOpen",
+      "msg": "Offer is not open"
+    },
+    {
+      "code": 6003,
+      "name": "NotMaker",
+      "msg": "Only the maker can cancel"
+    },
+    {
+      "code": 6004,
+      "name": "TakerIsMaker",
+      "msg": "Taker cannot be the maker"
+    },
+    {
+      "code": 6005,
+      "name": "OfferExpired",
+      "msg": "Offer has expired"
+    },
+    {
+      "code": 6006,
+      "name": "NotToken2022",
+      "msg": "Token program must be Token-2022"
+    },
+    {
+      "code": 6007,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "MakerState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nonce",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Offer",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "maker",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "offer_type",
+            "type": {
+              "defined": {
+                "name": "OfferType"
+              }
+            }
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "OfferStatus"
+              }
+            }
+          },
+          {
+            "name": "expiry_slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "Nonce used in PDA seeds (maker_state.nonce at create time)."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OfferStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Taken"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OfferType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Sell"
+          },
+          {
+            "name": "Buy"
+          }
+        ]
+      }
+    }
+  ]
+}

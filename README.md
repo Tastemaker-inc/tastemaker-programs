@@ -12,6 +12,7 @@ On-chain programs for [TasteMaker](https://tastemaker.music): platform token ($T
 | **project_escrow** | Create project, fund with $TASTE; milestone release only via governance CPI. `release_milestone` / `complete_project` require the governance release PDA as signer (no admin key). |
 | **governance** | Proposals + quadratic voting; finalize CPIs `release_milestone` via release PDA signer. |
 | **rwa_token** | Per-project RWA mint; backers claim by share; close to freeze. |
+| **revenue_distribution** | Per-project revenue config; artist deposits $TASTE, holders claim proportional share by epoch; close_epoch sweeps unclaimed. |
 | **otc_market** | OTC marketplace: create/cancel/accept offers for IOU and RWA tokens, priced in $TASTE (Token-2022 only). |
 
 ## Requirements
@@ -28,7 +29,7 @@ anchor build
 
 ## IDL
 
-Pre-built IDL JSON files for each program are in the [`idl/`](idl/) directory. Use them with `@coral-xyz/anchor` or other clients without building from source. CI verifies they stay in sync with the built programs.
+Pre-built IDL JSON files for each program are in the [`idl/`](idl/) directory. They use the **devnet** program IDs from the table below and match `Anchor.toml` `[programs.devnet]` and the web app (`web/lib/constants.ts`). Use them with `@coral-xyz/anchor` or other clients without building from source. Regenerate after program changes with `anchor build` then copy `target/idl/*.json` into `idl/` (and run the governance PDA patch if needed; see `scripts/patch-governance-idl.cjs`).
 
 ## Test
 
@@ -64,13 +65,15 @@ See `public_docs/README.md` for public runbooks and flow docs.
 
 **Canonical devnet program IDs.** These match `Anchor.toml` `[programs.devnet]` and the web app (`web/lib/constants.ts`). Use them for deploy, upgrades, and client configuration.
 
-| Program        | Program ID | Devnet |
-|----------------|------------|--------|
-| taste_token    | `2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo` | [Explorer](https://explorer.solana.com/address/2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo?cluster=devnet) |
-| project_escrow | `bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym` | [Explorer](https://explorer.solana.com/address/bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym?cluster=devnet) |
-| governance     | `AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK` | [Explorer](https://explorer.solana.com/address/AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK?cluster=devnet) |
-| rwa_token      | `GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE` | [Explorer](https://explorer.solana.com/address/GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE?cluster=devnet) |
-| otc_market     | `6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN` | [Explorer](https://explorer.solana.com/address/6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN?cluster=devnet) |
+| Program               | Program ID | Devnet |
+|-----------------------|------------|--------|
+| taste_token           | `2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo` | [Explorer](https://explorer.solana.com/address/2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo?cluster=devnet) |
+| project_escrow        | `bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym` | [Explorer](https://explorer.solana.com/address/bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym?cluster=devnet) |
+| governance            | `AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK` | [Explorer](https://explorer.solana.com/address/AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK?cluster=devnet) |
+| rwa_token             | `GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE` | [Explorer](https://explorer.solana.com/address/GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE?cluster=devnet) |
+| revenue_distribution  | `6bckDfoEDZWgZXU66fL2Sq6pjFmqxk3JVZEs2YVYMLc3` | [Explorer](https://explorer.solana.com/address/6bckDfoEDZWgZXU66fL2Sq6pjFmqxk3JVZEs2YVYMLc3?cluster=devnet) |
+| otc_market            | `6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN` | [Explorer](https://explorer.solana.com/address/6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN?cluster=devnet) |
+| rwa_transfer_hook     | `56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn` | [Explorer](https://explorer.solana.com/address/56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn?cluster=devnet) |
 
 All devnet programs use upgrade authority `F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU`. To verify (confirm `Last Deployed In Slot` and `Authority`):
 
@@ -79,7 +82,9 @@ solana program show 2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo --url devnet
 solana program show bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym --url devnet
 solana program show AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK --url devnet
 solana program show GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE --url devnet
+solana program show 6bckDfoEDZWgZXU66fL2Sq6pjFmqxk3JVZEs2YVYMLc3 --url devnet
 solana program show 6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN --url devnet
+solana program show 56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn --url devnet
 ```
 
 Programs must be deployed to devnet for the Explorer links to show program data.

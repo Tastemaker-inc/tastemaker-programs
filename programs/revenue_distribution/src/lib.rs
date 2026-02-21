@@ -121,7 +121,7 @@ pub mod revenue_distribution {
             .checked_add(share)
             .ok_or(RevError::Overflow)?;
 
-        let (vault_authority, bump) =
+        let (_vault_authority, bump) =
             Pubkey::find_program_address(&[b"rev_vault", config.project.as_ref()], ctx.program_id);
         let seeds: &[&[u8]] = &[b"rev_vault", config.project.as_ref(), &[bump]];
 
@@ -163,7 +163,7 @@ pub mod revenue_distribution {
         let remaining = epoch.amount.saturating_sub(epoch.total_claimed);
 
         if remaining > 0 {
-            let (vault_authority, bump) = Pubkey::find_program_address(
+            let (_vault_authority, bump) = Pubkey::find_program_address(
                 &[b"rev_vault", config.project.as_ref()],
                 ctx.program_id,
             );

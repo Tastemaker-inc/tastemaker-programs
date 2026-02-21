@@ -8,6 +8,117 @@
   },
   "instructions": [
     {
+      "name": "apply_material_edit",
+      "docs": [
+        "Governance-only: apply approved material edit (new terms hash, optional Project field updates) and open refund window."
+      ],
+      "discriminator": [
+        2,
+        68,
+        26,
+        201,
+        80,
+        131,
+        198,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "governance_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "project",
+          "writable": true
+        },
+        {
+          "name": "project_terms",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116,
+                  95,
+                  116,
+                  101,
+                  114,
+                  109,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "new_terms_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "refund_window_secs",
+          "type": "i64"
+        },
+        {
+          "name": "new_goal",
+          "type": "u64"
+        },
+        {
+          "name": "new_deadline",
+          "type": "i64"
+        },
+        {
+          "name": "new_milestone_percentages",
+          "type": {
+            "array": [
+              "u16",
+              5
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "cancel_project",
       "discriminator": [
         104,
@@ -50,6 +161,24 @@
         {
           "name": "governance_authority",
           "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "project",
@@ -193,6 +322,10 @@
       ],
       "args": [
         {
+          "name": "name",
+          "type": "string"
+        },
+        {
           "name": "goal",
           "type": "u64"
         },
@@ -210,6 +343,41 @@
           "type": "i64"
         }
       ]
+    },
+    {
+      "name": "force_complete_project",
+      "docs": [
+        "Recovery: mark project Completed when all milestones are released but status stuck Active",
+        "(e.g. finalized with old program that expected 5 milestones). Upgrade authority only."
+      ],
+      "discriminator": [
+        191,
+        60,
+        101,
+        245,
+        222,
+        192,
+        112,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "project",
+          "writable": true
+        },
+        {
+          "name": "program_account"
+        },
+        {
+          "name": "program_data_account"
+        }
+      ],
+      "args": []
     },
     {
       "name": "fund_project",
@@ -368,6 +536,34 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "vote_weight",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101,
+                  95,
+                  119,
+                  101,
+                  105,
+                  103,
+                  104,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -376,6 +572,399 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "initialize_config",
+      "docs": [
+        "One-time init: store the governance release PDA. Only the program upgrade authority can call this."
+      ],
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Must be the program upgrade authority (validated in instruction)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_account",
+          "docs": [
+            "Program account (executable) for this program. Used to read programdata address."
+          ]
+        },
+        {
+          "name": "program_data_account",
+          "docs": [
+            "ProgramData account for this program. Used to read upgrade_authority_address."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "governance_release_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "mint_receipt",
+      "docs": [
+        "Mints a single receipt NFT (Token-2022) for the backer at PDA [b\"receipt\", project, backer].",
+        "Call after fund_project (same tx or later). Client must insert (project_pda, wallet, mint=receipt_mint_pda) into receipt_mints so receipt-metadata API resolves."
+      ],
+      "discriminator": [
+        235,
+        43,
+        192,
+        89,
+        68,
+        47,
+        73,
+        50
+      ],
+      "accounts": [
+        {
+          "name": "backer_wallet",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "project"
+        },
+        {
+          "name": "backer"
+        },
+        {
+          "name": "receipt_authority",
+          "docs": [
+            "PDA: mint authority for the receipt mint; signs for mint_to and CreateV1."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              },
+              {
+                "kind": "account",
+                "path": "backer_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "receipt_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              },
+              {
+                "kind": "account",
+                "path": "backer_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "backer_receipt_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "backer_wallet"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "receipt_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "metadata",
+          "docs": [
+            "Metaplex metadata PDA for receipt_mint; validated in handler."
+          ],
+          "writable": true
+        },
+        {
+          "name": "master_edition",
+          "docs": [
+            "Metaplex master edition PDA for receipt_mint; validated in handler."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_metadata_program",
+          "docs": [
+            "Metaplex Token Metadata program (MPL_TOKEN_METADATA_ID)."
+          ]
+        },
+        {
+          "name": "sysvar_instructions",
+          "docs": [
+            "Sysvar Instructions (required by Metaplex CreateV1)."
+          ]
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "metadata_uri",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "opt_out_refund",
+      "docs": [
+        "Backer opts out during the material-edit refund window; receives their backing amount back."
+      ],
+      "discriminator": [
+        145,
+        204,
+        45,
+        32,
+        118,
+        121,
+        152,
+        208
+      ],
+      "accounts": [
+        {
+          "name": "backer_wallet",
+          "signer": true
+        },
+        {
+          "name": "project",
+          "writable": true,
+          "relations": [
+            "backer"
+          ]
+        },
+        {
+          "name": "project_terms",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116,
+                  95,
+                  116,
+                  101,
+                  114,
+                  109,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "backer",
+          "writable": true
+        },
+        {
+          "name": "backer_token_account",
+          "writable": true
+        },
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "escrow_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vote_weight",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101,
+                  95,
+                  119,
+                  101,
+                  105,
+                  103,
+                  104,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "taste_mint"
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
     },
     {
       "name": "refund",
@@ -437,6 +1026,34 @@
           }
         },
         {
+          "name": "vote_weight",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101,
+                  95,
+                  119,
+                  101,
+                  105,
+                  103,
+                  104,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
           "name": "taste_mint"
         },
         {
@@ -461,6 +1078,24 @@
         {
           "name": "governance_authority",
           "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "project",
@@ -505,6 +1140,139 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "set_vote_weight",
+      "docs": [
+        "Set or overwrite total_vote_weight for a project (backfill for existing projects). Only upgrade authority."
+      ],
+      "discriminator": [
+        167,
+        97,
+        230,
+        151,
+        117,
+        95,
+        121,
+        193
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "project",
+          "writable": true
+        },
+        {
+          "name": "vote_weight",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101,
+                  95,
+                  119,
+                  101,
+                  105,
+                  103,
+                  104,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_account"
+        },
+        {
+          "name": "program_data_account"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "total_vote_weight",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_config",
+      "docs": [
+        "Update the stored governance release authority (key rotation). Only the program upgrade authority can call this."
+      ],
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Must be the program upgrade authority (validated in instruction)."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program_account",
+          "docs": [
+            "Program account (executable) for this program."
+          ]
+        },
+        {
+          "name": "program_data_account",
+          "docs": [
+            "ProgramData account for this program."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "governance_release_authority",
+          "type": "pubkey"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -535,6 +1303,19 @@
       ]
     },
     {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
       "name": "Project",
       "discriminator": [
         205,
@@ -545,6 +1326,32 @@
         247,
         142,
         19
+      ]
+    },
+    {
+      "name": "ProjectTerms",
+      "discriminator": [
+        104,
+        152,
+        108,
+        69,
+        154,
+        242,
+        94,
+        111
+      ]
+    },
+    {
+      "name": "ProjectVoteWeight",
+      "discriminator": [
+        36,
+        139,
+        115,
+        3,
+        73,
+        103,
+        30,
+        99
       ]
     }
   ],
@@ -601,8 +1408,58 @@
     },
     {
       "code": 6010,
-      "name": "GovernanceAuthorityMustSign",
-      "msg": "Governance authority must sign"
+      "name": "GovernanceAuthorityMismatch",
+      "msg": "Governance authority does not match config"
+    },
+    {
+      "code": 6011,
+      "name": "NotUpgradeAuthority",
+      "msg": "Only program upgrade authority can initialize config"
+    },
+    {
+      "code": 6012,
+      "name": "RefundWindowNotOpen",
+      "msg": "Refund window is not open"
+    },
+    {
+      "code": 6013,
+      "name": "RefundWindowClosed",
+      "msg": "Refund window has closed"
+    },
+    {
+      "code": 6014,
+      "name": "AlreadyOptedOut",
+      "msg": "Already opted out"
+    },
+    {
+      "code": 6015,
+      "name": "MilestonesAlreadyReleased",
+      "msg": "Milestones already released; opt-out only when current_milestone is 0"
+    },
+    {
+      "code": 6016,
+      "name": "GoalExceeded",
+      "msg": "Funding would exceed project goal"
+    },
+    {
+      "code": 6017,
+      "name": "MetadataUriTooLong",
+      "msg": "Receipt metadata URI too long (max 200)"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidMetadataAccount",
+      "msg": "Metadata account does not match expected PDA"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidTokenMetadataProgram",
+      "msg": "Token metadata program is not the expected Metaplex program"
+    },
+    {
+      "code": 6020,
+      "name": "ProjectNameTooLong",
+      "msg": "Project name too long (max 32 chars)"
     }
   ],
   "types": [
@@ -647,6 +1504,21 @@
       }
     },
     {
+      "name": "Config",
+      "docs": [
+        "One-time config: stores the governance release PDA. ReleaseMilestone/CompleteProject validate against this."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "governance_release_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "Project",
       "type": {
         "kind": "struct",
@@ -654,6 +1526,10 @@
           {
             "name": "artist",
             "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
           },
           {
             "name": "goal",
@@ -712,6 +1588,52 @@
           },
           {
             "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProjectTerms",
+      "docs": [
+        "Tracks material-edit terms and refund window. Created when governance applies a material edit."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "terms_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "version",
+            "type": "u32"
+          },
+          {
+            "name": "refund_window_end",
+            "docs": [
+              "Unix timestamp when refund window closes; 0 = no active window."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProjectVoteWeight",
+      "docs": [
+        "Per-project sum of sqrt(backer amounts) for governance early-finalize \"outcome decided\" math. PDA seeds = [b\"vote_weight\", project]."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "total_vote_weight",
+            "type": "u64"
           }
         ]
       }
