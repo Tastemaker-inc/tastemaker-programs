@@ -12,10 +12,22 @@ unset CARGO_TARGET_DIR
 # Stale incremental build can cause InvalidProgramId (governance expects wrong rwa_token address).
 cargo clean 2>/dev/null || true
 
-# First build with --ignore-keys so keypairs are created (cargo clean removed them).
-# Then sync keypairs to Anchor.toml and declare_id so second build and deploy match.
-anchor build --ignore-keys -- --features test
-anchor keys sync
+# First build: create keypairs (cargo clean removed them). Some Anchor CLI versions support
+# --ignore-keys; others (e.g. older CI images) do not. If --ignore-keys fails, generate
+# keypairs manually so a single anchor build works.
+if ! anchor build --ignore-keys -- --features test 2>/dev/null; then
+  echo "anchor build --ignore-keys not supported; generating keypairs then building..."
+  mkdir -p "${ROOT_DIR}/target/deploy"
+  for program in governance otc_market project_escrow revenue_distribution rwa_token taste_token; do
+    kp="${ROOT_DIR}/target/deploy/${program}-keypair.json"
+    if [ ! -f "$kp" ]; then
+      solana-keygen new -o "$kp" --no-bip39-passphrase --force >/dev/null 2>&1
+    fi
+  done
+  anchor keys sync
+fi
+# Sync keypairs to Anchor.toml so second build and deploy use consistent declare_id (when --ignore-keys was used).
+anchor keys sync 2>/dev/null || true
 anchor build -- --features test
 
 # Build rwa_transfer_hook (native Solana program, not Anchor; no IDL). Required for RWA mint creation.
