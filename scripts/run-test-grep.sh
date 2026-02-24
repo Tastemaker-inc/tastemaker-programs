@@ -73,7 +73,9 @@ solana config set --keypair "$TEST_WALLET" --url http://127.0.0.1:8899 >/dev/nul
 solana -u http://127.0.0.1:8899 airdrop 1000 "$TEST_WALLET_ADDR" >/dev/null
 
 echo "Building and deploying programs..."
-ANCHOR_WALLET="$TEST_WALLET" anchor build -- --features test
+# Use --ignore-keys so built binary declare_id matches Anchor.toml [programs.localnet] (avoids DeclaredProgramIdMismatch).
+ANCHOR_WALLET="$TEST_WALLET" anchor build --ignore-keys -- --features test 2>/dev/null || \
+  ANCHOR_WALLET="$TEST_WALLET" anchor build -- --features test
 ANCHOR_WALLET="$TEST_WALLET" anchor deploy --provider.cluster localnet --provider.wallet "$TEST_WALLET"
 
 # Deploy rwa_transfer_hook (native program) so RWA/revenue greps work (e.g. test:grep "rwa_token").

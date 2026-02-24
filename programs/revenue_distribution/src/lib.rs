@@ -8,7 +8,7 @@ use project_escrow::{Project, ProjectStatus};
 use rwa_token::RwaState;
 
 #[cfg(not(feature = "devnet"))]
-declare_id!("GyagQe3FXKyLeuEurSTvmCtKAzjUV7xGFgo8TSSvJLbS");
+declare_id!("U7cFJVrg2GZkiRUsh9Tgp6vdmin7SjAif5aY1qfwYUV");
 #[cfg(feature = "devnet")]
 declare_id!("C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK");
 

@@ -183,7 +183,7 @@ use project_escrow::{Backer, Project, ProjectStatus};
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("CjfnmvHpv9hK3q5dtSCR2ok35BaZATp7PaYCVn8fXY1c");
+declare_id!("8HADZs66xrYco4Srsy2rmHioyxT4kGuEJupvGsSjk2Kp");
 #[cfg(feature = "devnet")]
 declare_id!("GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE");
 

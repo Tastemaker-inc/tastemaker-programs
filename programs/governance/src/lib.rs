@@ -9,7 +9,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("Cc68jGVH2x1fakbK9WoSfRSDa6qFuvShf2SBjrN4J2ir");
+declare_id!("HaFSeWTYLFdqv4hdgJQAcCRehVbmbF9YoRjcaPct1Dex");
 #[cfg(feature = "devnet")]
 declare_id!("AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK");
 

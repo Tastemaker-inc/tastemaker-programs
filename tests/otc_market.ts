@@ -16,6 +16,7 @@ import {
 import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
   createMintToInstruction,
   createMint,
   TOKEN_2022_PROGRAM_ID,
@@ -64,6 +65,15 @@ describe("otc_market", () => {
     )[0];
   }
 
+  function escrowAuthorityPda(nonce: number): PublicKey {
+    const buf = Buffer.alloc(8);
+    buf.writeBigUInt64LE(BigInt(nonce));
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), maker.publicKey.toBuffer(), buf],
+      otcProgramId
+    )[0];
+  }
+
   before(async () => {
     maker = Keypair.generate();
     taker = Keypair.generate();
@@ -101,6 +111,16 @@ describe("otc_market", () => {
     );
   });
 
+  it("initialize: succeeds when called by payer (no-op)", async () => {
+    await otcProgram.methods
+      .initialize()
+      .accounts({
+        payer: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+  });
+
   it("create_offer rejects non-Token-2022 asset (wrong token program)", async () => {
     const [makerState] = PublicKey.findProgramAddressSync(
       [Buffer.from("maker"), maker.publicKey.toBuffer()],
@@ -108,6 +128,25 @@ describe("otc_market", () => {
     );
     const nonce = 0;
     const offer = offerPda(nonce);
+    const escrowAuthority = escrowAuthorityPda(nonce);
+    const makerAssetAta = getAssociatedTokenAddressSync(
+      assetMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const makerQuoteAta = getAssociatedTokenAddressSync(
+      quoteMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
     const expirySlot = new anchor.BN((await provider.connection.getSlot()) + 10000);
 
     await expect(
@@ -118,7 +157,13 @@ describe("otc_market", () => {
           makerState,
           offer,
           assetMint,
+          makerAssetAta,
+          makerQuoteAta,
+          escrowAuthority,
+          escrowAta,
+          quoteMint,
           assetTokenProgram: TOKEN_PROGRAM_ID,
+          quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([maker])
@@ -133,6 +178,25 @@ describe("otc_market", () => {
     );
     const nonce = 0;
     const offer = offerPda(nonce);
+    const escrowAuthority = escrowAuthorityPda(nonce);
+    const makerAssetAta = getAssociatedTokenAddressSync(
+      assetMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const makerQuoteAta = getAssociatedTokenAddressSync(
+      quoteMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
     const expirySlot = new anchor.BN((await provider.connection.getSlot()) + 10000);
 
     await expect(
@@ -143,7 +207,13 @@ describe("otc_market", () => {
           makerState,
           offer,
           assetMint,
+          makerAssetAta,
+          makerQuoteAta,
+          escrowAuthority,
+          escrowAta,
+          quoteMint,
           assetTokenProgram: TOKEN_2022_PROGRAM_ID,
+          quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([maker])
@@ -158,6 +228,25 @@ describe("otc_market", () => {
     );
     const nonce = 0;
     const offer = offerPda(nonce);
+    const escrowAuthority = escrowAuthorityPda(nonce);
+    const makerAssetAta = getAssociatedTokenAddressSync(
+      assetMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const makerQuoteAta = getAssociatedTokenAddressSync(
+      quoteMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
     const expirySlot = new anchor.BN((await provider.connection.getSlot()) + 10000);
 
     await expect(
@@ -168,7 +257,13 @@ describe("otc_market", () => {
           makerState,
           offer,
           assetMint,
+          makerAssetAta,
+          makerQuoteAta,
+          escrowAuthority,
+          escrowAta,
+          quoteMint,
           assetTokenProgram: TOKEN_2022_PROGRAM_ID,
+          quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([maker])
@@ -219,20 +314,67 @@ describe("otc_market", () => {
     );
     const nonce = 0;
     const offer = offerPda(nonce);
+    const escrowAuthority = escrowAuthorityPda(nonce);
+    const makerQuoteAta = getAssociatedTokenAddressSync(
+      quoteMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
+    const createEscrowAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      maker.publicKey,
+      escrowAta,
+      escrowAuthority,
+      assetMint,
+      TOKEN_2022_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    const makerQuoteInfo = await provider.connection.getAccountInfo(makerQuoteAta);
+    if (!makerQuoteInfo) {
+      await sendAndConfirmTransaction(
+        provider.connection,
+        new Transaction().add(
+          createAssociatedTokenAccountInstruction(
+            maker.publicKey,
+            makerQuoteAta,
+            maker.publicKey,
+            quoteMint,
+            TOKEN_2022_PROGRAM_ID,
+            ASSOCIATED_TOKEN_PROGRAM_ID
+          )
+        ),
+        [maker]
+      );
+    }
     const expirySlot = new anchor.BN((await provider.connection.getSlot()) + 100000);
 
-    await otcProgram.methods
-      .createOffer(amount, price, { sell: {} }, expirySlot)
-      .accounts({
-        maker: maker.publicKey,
-        makerState,
-        offer,
-        assetMint,
-        assetTokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([maker])
-      .rpc();
+    const tx = new Transaction().add(createEscrowAtaIx);
+    tx.add(
+      await otcProgram.methods
+        .createOffer(amount, price, { sell: {} }, expirySlot)
+        .accounts({
+          maker: maker.publicKey,
+          makerState,
+          offer,
+          assetMint,
+          makerAssetAta: makerAta,
+          makerQuoteAta,
+          escrowAuthority,
+          escrowAta,
+          quoteMint,
+          assetTokenProgram: TOKEN_2022_PROGRAM_ID,
+          quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction()
+    );
+    await sendAndConfirmTransaction(provider.connection, tx, [maker]);
 
     const offerAcc = await otcProgram.account.offer.fetch(offer);
     expect(offerAcc.status.open !== undefined).to.be.true;
@@ -241,12 +383,39 @@ describe("otc_market", () => {
 
   it("cancel_offer by non-maker fails (NotMaker)", async () => {
     const offer = offerPda(0);
+    const makerAssetAta = getAssociatedTokenAddressSync(
+      assetMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const makerQuoteAta = getAssociatedTokenAddressSync(
+      quoteMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const escrowAuthority = escrowAuthorityPda(0);
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
     await expect(
       otcProgram.methods
         .cancelOffer()
         .accounts({
           maker: taker.publicKey,
           offer,
+          assetMint,
+          quoteMint,
+          makerAssetAta,
+          makerQuoteAta,
+          escrowAuthority,
+          escrowAta,
+          assetTokenProgram: TOKEN_2022_PROGRAM_ID,
+          quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
         })
         .signers([taker])
         .rpc()
@@ -255,11 +424,38 @@ describe("otc_market", () => {
 
   it("cancel_offer by maker succeeds", async () => {
     const offer = offerPda(0);
+    const makerAssetAta = getAssociatedTokenAddressSync(
+      assetMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const makerQuoteAta = getAssociatedTokenAddressSync(
+      quoteMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const escrowAuthority = escrowAuthorityPda(0);
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
     await otcProgram.methods
       .cancelOffer()
       .accounts({
         maker: maker.publicKey,
         offer,
+        assetMint,
+        quoteMint,
+        makerAssetAta,
+        makerQuoteAta,
+        escrowAuthority,
+        escrowAta,
+        assetTokenProgram: TOKEN_2022_PROGRAM_ID,
+        quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .signers([maker])
       .rpc();
@@ -294,13 +490,19 @@ describe("otc_market", () => {
       false,
       TOKEN_2022_PROGRAM_ID
     );
+    const escrowAuthority = escrowAuthorityPda(0);
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
 
     await expect(
       otcProgram.methods
         .acceptOffer()
         .accounts({
           taker: taker.publicKey,
-          maker: maker.publicKey,
           offer,
           assetMint,
           quoteMint,
@@ -308,10 +510,12 @@ describe("otc_market", () => {
           takerAssetAta: takerAta,
           makerQuoteAta,
           takerQuoteAta,
+          escrowAuthority,
+          escrowAta,
           assetTokenProgram: TOKEN_2022_PROGRAM_ID,
           quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
         })
-        .signers([taker, maker])
+        .signers([taker])
         .rpc()
     ).to.be.rejected;
   });
@@ -324,20 +528,56 @@ describe("otc_market", () => {
     const state = await otcProgram.account.makerState.fetch(makerState);
     const nonce = state.nonce.toNumber();
     const offer = offerPda(nonce);
+    const escrowAuthority = escrowAuthorityPda(nonce);
+    const makerAssetAta = getAssociatedTokenAddressSync(
+      assetMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const makerQuoteAta = getAssociatedTokenAddressSync(
+      quoteMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
+    const createEscrowAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      maker.publicKey,
+      escrowAta,
+      escrowAuthority,
+      assetMint,
+      TOKEN_2022_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
     const expirySlot = new anchor.BN((await provider.connection.getSlot()) + 100000);
 
-    await otcProgram.methods
-      .createOffer(amount, price, { sell: {} }, expirySlot)
-      .accounts({
-        maker: maker.publicKey,
-        makerState,
-        offer,
-        assetMint,
-        assetTokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([maker])
-      .rpc();
+    const tx = new Transaction().add(createEscrowAtaIx);
+    tx.add(
+      await otcProgram.methods
+        .createOffer(amount, price, { sell: {} }, expirySlot)
+        .accounts({
+          maker: maker.publicKey,
+          makerState,
+          offer,
+          assetMint,
+          makerAssetAta,
+          makerQuoteAta,
+          escrowAuthority,
+          escrowAta,
+          quoteMint,
+          assetTokenProgram: TOKEN_2022_PROGRAM_ID,
+          quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction()
+    );
+    await sendAndConfirmTransaction(provider.connection, tx, [maker]);
   });
 
   it("accept_offer with taker === maker fails (TakerIsMaker)", async () => {
@@ -354,13 +594,19 @@ describe("otc_market", () => {
       false,
       TOKEN_2022_PROGRAM_ID
     );
+    const escrowAuthority = escrowAuthorityPda(1);
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
 
     await expect(
       otcProgram.methods
         .acceptOffer()
         .accounts({
           taker: maker.publicKey,
-          maker: maker.publicKey,
           offer,
           assetMint,
           quoteMint,
@@ -368,6 +614,8 @@ describe("otc_market", () => {
           takerAssetAta: makerAta,
           makerQuoteAta,
           takerQuoteAta: makerQuoteAta,
+          escrowAuthority,
+          escrowAta,
           assetTokenProgram: TOKEN_2022_PROGRAM_ID,
           quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
         })
@@ -385,21 +633,57 @@ describe("otc_market", () => {
     const nonce = state.nonce.toNumber();
     expiredOfferNonce = nonce;
     const offer = offerPda(nonce);
+    const escrowAuthority = escrowAuthorityPda(nonce);
+    const makerAssetAta = getAssociatedTokenAddressSync(
+      assetMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const makerQuoteAta = getAssociatedTokenAddressSync(
+      quoteMint,
+      maker.publicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
+    const createEscrowAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+      maker.publicKey,
+      escrowAta,
+      escrowAuthority,
+      assetMint,
+      TOKEN_2022_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
     const currentSlot = await provider.connection.getSlot();
     const pastExpirySlot = new anchor.BN(Math.max(0, currentSlot - 1));
 
-    await otcProgram.methods
-      .createOffer(amount, price, { sell: {} }, pastExpirySlot)
-      .accounts({
-        maker: maker.publicKey,
-        makerState,
-        offer,
-        assetMint,
-        assetTokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([maker])
-      .rpc();
+    const tx = new Transaction().add(createEscrowAtaIx);
+    tx.add(
+      await otcProgram.methods
+        .createOffer(amount, price, { sell: {} }, pastExpirySlot)
+        .accounts({
+          maker: maker.publicKey,
+          makerState,
+          offer,
+          assetMint,
+          makerAssetAta,
+          makerQuoteAta,
+          escrowAuthority,
+          escrowAta,
+          quoteMint,
+          assetTokenProgram: TOKEN_2022_PROGRAM_ID,
+          quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction()
+    );
+    await sendAndConfirmTransaction(provider.connection, tx, [maker]);
   });
 
   it("accept_offer on expired offer fails (OfferExpired)", async () => {
@@ -429,13 +713,19 @@ describe("otc_market", () => {
       false,
       TOKEN_2022_PROGRAM_ID
     );
+    const escrowAuthority = escrowAuthorityPda(expiredOfferNonce as number);
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
 
     await expect(
       otcProgram.methods
         .acceptOffer()
         .accounts({
           taker: taker.publicKey,
-          maker: maker.publicKey,
           offer,
           assetMint,
           quoteMint,
@@ -443,10 +733,12 @@ describe("otc_market", () => {
           takerAssetAta: takerAta,
           makerQuoteAta,
           takerQuoteAta,
+          escrowAuthority,
+          escrowAta,
           assetTokenProgram: TOKEN_2022_PROGRAM_ID,
           quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
         })
-        .signers([taker, maker])
+        .signers([taker])
         .rpc()
     ).to.be.rejected;
   });
@@ -540,11 +832,18 @@ describe("otc_market", () => {
       [maker]
     );
 
+    const escrowAuthority = escrowAuthorityPda(1);
+    const escrowAta = getAssociatedTokenAddressSync(
+      assetMint,
+      escrowAuthority,
+      true, // allowOwnerOffCurve: escrow authority is a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
+
     await otcProgram.methods
       .acceptOffer()
       .accounts({
         taker: taker.publicKey,
-        maker: maker.publicKey,
         offer,
         assetMint,
         quoteMint,
@@ -552,10 +851,12 @@ describe("otc_market", () => {
         takerAssetAta: takerAta,
         makerQuoteAta,
         takerQuoteAta,
+        escrowAuthority,
+        escrowAta,
         assetTokenProgram: TOKEN_2022_PROGRAM_ID,
         quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
       })
-      .signers([taker, maker])
+      .signers([taker])
       .rpc();
 
     const offerAcc = await otcProgram.account.offer.fetch(offer);
@@ -566,7 +867,6 @@ describe("otc_market", () => {
         .acceptOffer()
         .accounts({
           taker: taker.publicKey,
-          maker: maker.publicKey,
           offer,
           assetMint,
           quoteMint,
@@ -574,10 +874,12 @@ describe("otc_market", () => {
           takerAssetAta: takerAta,
           makerQuoteAta,
           takerQuoteAta,
+          escrowAuthority,
+          escrowAta,
           assetTokenProgram: TOKEN_2022_PROGRAM_ID,
           quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
         })
-        .signers([taker, maker])
+        .signers([taker])
         .rpc()
     ).to.be.rejected;
   });

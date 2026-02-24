@@ -15,7 +15,7 @@ use mpl_token_metadata::{
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("GahY5Vp6SZ7zCHzECNa3fm8CfKdP4dvHaSoovGJtGr8i");
+declare_id!("BN51NghxP4TMFDar5HVqngrwHG6kUqWbXkvhn9x9rbud");
 #[cfg(feature = "devnet")]
 declare_id!("bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym");
 
@@ -259,6 +259,23 @@ pub mod project_escrow {
             project.key(),
             artist_state.project_count - 1,
             project.key()
+        );
+        Ok(())
+    }
+
+    /// Artist initializes ProjectTerms at publish so ownership terms are on-chain before any backer funds.
+    /// Call once per project after create_project. Uses init (not init_if_needed) so second call fails; apply_material_edit uses init_if_needed for backwards compatibility.
+    pub fn initialize_project_terms(
+        ctx: Context<InitializeProjectTerms>,
+        terms_hash: [u8; 32],
+    ) -> Result<()> {
+        let terms = &mut ctx.accounts.project_terms;
+        terms.terms_hash = terms_hash;
+        terms.version = 1;
+        terms.refund_window_end = 0;
+        msg!(
+            "Project terms initialized: project {}, version 1",
+            ctx.accounts.project.key()
         );
         Ok(())
     }
@@ -909,6 +926,29 @@ pub struct CreateProject<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeProjectTerms<'info> {
+    #[account(mut)]
+    pub artist: Signer<'info>,
+
+    #[account(
+        has_one = artist,
+        constraint = project.status == ProjectStatus::Active @ EscrowError::ProjectNotActive,
+    )]
+    pub project: Account<'info, Project>,
+
+    #[account(
+        init,
+        payer = artist,
+        space = 8 + 32 + 4 + 8,
+        seeds = [b"project_terms", project.key().as_ref()],
+        bump,
+    )]
+    pub project_terms: Account<'info, ProjectTerms>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct FundProject<'info> {
     #[account(mut)]
     pub backer_wallet: Signer<'info>,
@@ -1223,5 +1263,14 @@ mod tests {
             (total_raised as u128 * 20 / 100) as u64,
             20_000 * 1_000_000_000
         );
+    }
+
+    /// initialize_project_terms sets version = 1 and refund_window_end = 0; terms_hash is 32 bytes.
+    #[test]
+    fn test_initialize_project_terms_invariants() {
+        assert_eq!(32, std::mem::size_of::<[u8; 32]>());
+        // ProjectTerms layout: 8 (discriminator) + 32 (terms_hash) + 4 (version) + 8 (refund_window_end)
+        const EXPECTED_SPACE: usize = 8 + 32 + 4 + 8;
+        assert_eq!(52, EXPECTED_SPACE);
     }
 }

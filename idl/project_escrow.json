@@ -345,6 +345,81 @@
       ]
     },
     {
+      "name": "initialize_project_terms",
+      "docs": [
+        "Artist initializes ProjectTerms at publish so ownership terms are on-chain before any backer funds. Call once per project after create_project."
+      ],
+      "discriminator": [
+        188,
+        50,
+        82,
+        202,
+        46,
+        178,
+        24,
+        249
+      ],
+      "accounts": [
+        {
+          "name": "artist",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "project"
+          ]
+        },
+        {
+          "name": "project",
+          "writable": true
+        },
+        {
+          "name": "project_terms",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116,
+                  95,
+                  116,
+                  101,
+                  114,
+                  109,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "terms_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "force_complete_project",
       "docs": [
         "Recovery: mark project Completed when all milestones are released but status stuck Active",
