@@ -125,7 +125,7 @@ pub mod otc_market {
             nonce_bytes.as_ref(),
             &[escrow_bump],
         ];
-        let signer_seeds = &[&seeds[..]];
+        let signer_seeds = &[seeds];
 
         match offer.offer_type {
             OfferType::Sell => {
@@ -205,7 +205,7 @@ pub mod otc_market {
             nonce_bytes.as_ref(),
             &[escrow_bump],
         ];
-        let signer_seeds = &[&seeds[..]];
+        let signer_seeds = &[seeds];
 
         match offer_type {
             OfferType::Sell => {
