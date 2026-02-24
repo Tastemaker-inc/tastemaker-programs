@@ -66,10 +66,8 @@ pub mod otc_market {
                     to: ctx.accounts.escrow_ata.to_account_info(),
                     authority: maker,
                 };
-                let cpi = CpiContext::new(
-                    ctx.accounts.asset_token_program.to_account_info(),
-                    transfer,
-                );
+                let cpi =
+                    CpiContext::new(ctx.accounts.asset_token_program.to_account_info(), transfer);
                 anchor_spl::token_interface::transfer_checked(cpi, amount, asset_decimals)
                     .map_err(|_| OtcError::EscrowTransferFailed)?;
             }
@@ -85,10 +83,8 @@ pub mod otc_market {
                     to: ctx.accounts.escrow_ata.to_account_info(),
                     authority: maker,
                 };
-                let cpi = CpiContext::new(
-                    ctx.accounts.quote_token_program.to_account_info(),
-                    transfer,
-                );
+                let cpi =
+                    CpiContext::new(ctx.accounts.quote_token_program.to_account_info(), transfer);
                 anchor_spl::token_interface::transfer_checked(cpi, price, quote_decimals)
                     .map_err(|_| OtcError::EscrowTransferFailed)?;
             }
