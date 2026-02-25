@@ -1,5 +1,5 @@
 {
-  "address": "GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE",
+  "address": "8HADZs66xrYco4Srsy2rmHioyxT4kGuEJupvGsSjk2Kp",
   "metadata": {
     "name": "rwa_token",
     "version": "0.1.0",
@@ -1198,6 +1198,98 @@
         },
         {
           "name": "jurisdiction",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "update_rwa_rights",
+      "docs": [
+        "Update terms_hash and terms_uri (e.g. after a material-edit governance pass). Callable by rwa_state.authority."
+      ],
+      "discriminator": [
+        115,
+        145,
+        88,
+        97,
+        24,
+        114,
+        149,
+        77
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "rwa_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rwa_rights",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  119,
+                  97,
+                  95,
+                  114,
+                  105,
+                  103,
+                  104,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rwa_state.project",
+                "account": "RwaState"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_terms_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "new_terms_uri",
           "type": "string"
         }
       ]

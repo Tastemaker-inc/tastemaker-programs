@@ -1,5 +1,5 @@
 {
-  "address": "6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN",
+  "address": "28hoarPFUJTqSJFg9gCQf1qpngkVMm63ZwcJV7X4GDkZ",
   "metadata": {
     "name": "otc_market",
     "version": "0.1.0",
@@ -10,8 +10,8 @@
     {
       "name": "accept_offer",
       "docs": [
-        "Accept an open offer: transfer asset and $TASTE between taker and maker.",
-        "For Sell: maker gives asset, taker gives $TASTE. For Buy: maker gives $TASTE, taker gives asset."
+        "Accept an open offer. Asset and $TASTE move via escrow; taker signs only.",
+        "For Sell: escrow -> taker (asset), taker -> maker ($TASTE). For Buy: taker -> maker (asset), escrow -> taker ($TASTE)."
       ],
       "discriminator": [
         227,
@@ -27,14 +27,7 @@
         {
           "name": "taker",
           "docs": [
-            "Taker: the account accepting the offer (must sign)."
-          ],
-          "signer": true
-        },
-        {
-          "name": "maker",
-          "docs": [
-            "Maker: must sign to authorize transfer of their tokens (asset for Sell, $TASTE for Buy)."
+            "Taker: the only signer; instant execution."
           ],
           "signer": true
         },
@@ -90,6 +83,38 @@
           "writable": true
         },
         {
+          "name": "escrow_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer.maker",
+                "account": "Offer"
+              },
+              {
+                "kind": "account",
+                "path": "offer.nonce",
+                "account": "Offer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_ata",
+          "writable": true
+        },
+        {
           "name": "asset_token_program",
           "docs": [
             "Token program for the asset. Must be Token-2022."
@@ -107,7 +132,7 @@
     {
       "name": "cancel_offer",
       "docs": [
-        "Cancel an open offer. Only the maker can cancel."
+        "Cancel an open offer. Only the maker can cancel. Returns escrowed tokens to maker."
       ],
       "discriminator": [
         92,
@@ -151,6 +176,58 @@
               }
             ]
           }
+        },
+        {
+          "name": "asset_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "maker_asset_ata",
+          "writable": true
+        },
+        {
+          "name": "maker_quote_ata",
+          "writable": true
+        },
+        {
+          "name": "escrow_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "offer.maker",
+                "account": "Offer"
+              },
+              {
+                "kind": "account",
+                "path": "offer.nonce",
+                "account": "Offer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_ata",
+          "writable": true
+        },
+        {
+          "name": "asset_token_program"
+        },
+        {
+          "name": "quote_token_program"
         }
       ],
       "args": []
@@ -158,7 +235,7 @@
     {
       "name": "create_offer",
       "docs": [
-        "Create an offer (sell or buy). Token-2022 only for asset mint and quote mint."
+        "Create an offer (sell or buy). Maker deposits asset (sell) or TASTE (buy) into escrow. Token-2022 only."
       ],
       "discriminator": [
         237,
@@ -229,9 +306,72 @@
           "name": "asset_mint"
         },
         {
+          "name": "maker_asset_ata",
+          "docs": [
+            "For Sell: maker's asset ATA (source). For Buy: unused but required for account layout."
+          ],
+          "writable": true
+        },
+        {
+          "name": "maker_quote_ata",
+          "docs": [
+            "For Buy: maker's quote ATA (source). For Sell: unused but required for account layout."
+          ],
+          "writable": true
+        },
+        {
+          "name": "escrow_authority",
+          "docs": [
+            "PDA: signer for escrow ATA. Seeds = [b\"escrow\", maker, nonce]."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "maker"
+              },
+              {
+                "kind": "account",
+                "path": "maker_state.nonce",
+                "account": "MakerState"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_ata",
+          "docs": [
+            "Escrow ATA: for Sell holds asset; for Buy holds quote. Owner = escrow_authority."
+          ],
+          "writable": true
+        },
+        {
+          "name": "quote_mint",
+          "docs": [
+            "Quote mint ($TASTE). Required for Buy; for Sell used to validate quote_token_program."
+          ]
+        },
+        {
           "name": "asset_token_program",
           "docs": [
             "Token program for the asset mint. Must be Token-2022."
+          ]
+        },
+        {
+          "name": "quote_token_program",
+          "docs": [
+            "Token program for the quote mint. Must be Token-2022."
           ]
         },
         {
@@ -359,6 +499,11 @@
       "code": 6007,
       "name": "Overflow",
       "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6008,
+      "name": "EscrowTransferFailed",
+      "msg": "Escrow transfer failed"
     }
   ],
   "types": [

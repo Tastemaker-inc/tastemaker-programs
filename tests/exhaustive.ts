@@ -48,7 +48,7 @@ function idlPath(name: string): string {
 }
 const LAMPORTS_PER_TASTE = Math.pow(10, DECIMALS);
 
-const MAX_WALL_CLOCK_MS = 20 * 60 * 1000; // 20 minutes (CI can be slow)
+const MAX_WALL_CLOCK_MS = 22 * 60 * 1000; // 22 min; under CI job 25 min so we exit cleanly with message
 const watchdogTimer = setTimeout(() => {
   console.error("\n[exhaustive] Wall-clock limit reached (%d min). Exiting to avoid hanging.\n", MAX_WALL_CLOCK_MS / 60000);
   process.exit(1);
@@ -1524,9 +1524,11 @@ describe("tastemaker-programs exhaustive", function () {
     const SYSVAR_INSTRUCTIONS_ID = new PublicKey("Sysvar1nstructions1111111111111111111111111");
 
     it("rejects name/symbol/uri over bounds", async function () {
-      if (typeof (rwaToken.methods as { initializeRwaMetadata?: unknown }).initializeRwaMetadata !== "function") {
-        this.skip();
-        return;
+      const methods = rwaToken.methods as Record<string, unknown>;
+      const hasInitMeta = typeof methods.initializeRwaMetadata === "function";
+      if (!hasInitMeta) {
+        const keys = Object.keys(methods).sort().join(", ");
+        throw new Error(`rwaToken.methods.initializeRwaMetadata is not a function. Actual methods: ${keys}`);
       }
       const longName = "a".repeat(33);
       const [metadataGuardPda] = PublicKey.findProgramAddressSync(
@@ -1595,9 +1597,10 @@ describe("tastemaker-programs exhaustive", function () {
     });
 
     it("authority initializes RWA metadata once", async function () {
-      if (typeof (rwaToken.methods as { initializeRwaMetadata?: unknown }).initializeRwaMetadata !== "function") {
-        this.skip();
-        return;
+      const methods = rwaToken.methods as Record<string, unknown>;
+      if (typeof methods.initializeRwaMetadata !== "function") {
+        const keys = Object.keys(methods).sort().join(", ");
+        throw new Error(`rwaToken.methods.initializeRwaMetadata is not a function. Actual methods: ${keys}`);
       }
       const [metadataGuardPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("rwa_metadata"), projectPda.toBuffer()],
@@ -1605,8 +1608,8 @@ describe("tastemaker-programs exhaustive", function () {
       );
       const guardAlready = await provider.connection.getAccountInfo(metadataGuardPda);
       if (guardAlready) {
-        // Governance already created metadata during finalize_proposal; skip standalone init.
-        this.skip();
+        // Governance already created metadata during finalize_proposal; guard exists, nothing to do.
+        expect(guardAlready.owner.equals(rwaTokenProgramId)).to.be.true;
         return;
       }
       const [metadataPda] = PublicKey.findProgramAddressSync(

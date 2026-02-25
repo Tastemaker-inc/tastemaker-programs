@@ -1,5 +1,5 @@
 {
-  "address": "bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym",
+  "address": "BN51NghxP4TMFDar5HVqngrwHG6kUqWbXkvhn9x9rbud",
   "metadata": {
     "name": "project_escrow",
     "version": "0.1.0",
@@ -345,81 +345,6 @@
       ]
     },
     {
-      "name": "initialize_project_terms",
-      "docs": [
-        "Artist initializes ProjectTerms at publish so ownership terms are on-chain before any backer funds. Call once per project after create_project."
-      ],
-      "discriminator": [
-        188,
-        50,
-        82,
-        202,
-        46,
-        178,
-        24,
-        249
-      ],
-      "accounts": [
-        {
-          "name": "artist",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "project"
-          ]
-        },
-        {
-          "name": "project",
-          "writable": true
-        },
-        {
-          "name": "project_terms",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  106,
-                  101,
-                  99,
-                  116,
-                  95,
-                  116,
-                  101,
-                  114,
-                  109,
-                  115
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "project"
-              }
-            ]
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "terms_hash",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        }
-      ]
-    },
-    {
       "name": "force_complete_project",
       "docs": [
         "Recovery: mark project Completed when all milestones are released but status stuck Active",
@@ -712,6 +637,81 @@
         {
           "name": "governance_release_authority",
           "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "initialize_project_terms",
+      "docs": [
+        "Artist initializes ProjectTerms at publish so ownership terms are on-chain before any backer funds.",
+        "Call once per project after create_project. Uses init (not init_if_needed) so second call fails; apply_material_edit uses init_if_needed for backwards compatibility."
+      ],
+      "discriminator": [
+        188,
+        50,
+        82,
+        202,
+        46,
+        178,
+        24,
+        249
+      ],
+      "accounts": [
+        {
+          "name": "artist",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "project"
+          ]
+        },
+        {
+          "name": "project"
+        },
+        {
+          "name": "project_terms",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  106,
+                  101,
+                  99,
+                  116,
+                  95,
+                  116,
+                  101,
+                  114,
+                  109,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "terms_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
         }
       ]
     },

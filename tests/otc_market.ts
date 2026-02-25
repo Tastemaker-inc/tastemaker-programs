@@ -34,7 +34,10 @@ function idlPath(name: string): string {
 
 const TOKEN_2022_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
-describe("otc_market", () => {
+describe("otc_market", function () {
+  this.timeout(120_000); // 2 min per test; fail fast if one hangs (CI job is 25 min)
+  this.slow(30_000); // flag tests > 30s as slow
+
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 

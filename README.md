@@ -40,7 +40,7 @@ anchor test
 
 Runs the exhaustive integration test against a local validator. The test script in `Anchor.toml` compiles `tests/exhaustive.ts` to JavaScript with [esbuild](https://esbuild.github.io/) and runs [mocha](https://mochajs.org/) on the output so Node never loads `.ts` directly (avoids "Unknown file extension .ts" with Node 20+ / Anchor 0.32). For a lighter smoke test, run `npx ts-mocha -p ./tsconfig.json -t 30000 tests/integration.ts` after `anchor build` (uses default provider cluster).
 
-**Exhaustive test suite** (40 backers, 5 milestones, quadratic voting, RWA claim):
+**Exhaustive test suite** (40 backers, 5 milestones, quadratic voting, RWA claim, OTC market). Expect **77 passing** tests.
 
 ```bash
 npm run test:full

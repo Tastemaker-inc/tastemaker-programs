@@ -1,5 +1,5 @@
 {
-  "address": "AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK",
+  "address": "HaFSeWTYLFdqv4hdgJQAcCRehVbmbF9YoRjcaPct1Dex",
   "metadata": {
     "name": "governance",
     "version": "0.1.0",
@@ -149,10 +149,31 @@
           "writable": true,
           "pda": {
             "seeds": [
-              { "kind": "const", "value": [112, 114, 111, 112, 111, 115, 97, 108] },
-              { "kind": "arg", "path": "project_key" },
-              { "kind": "arg", "path": "milestone_index" },
-              { "kind": "arg", "path": "attempt" }
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "project_key"
+              },
+              {
+                "kind": "arg",
+                "path": "milestone_index"
+              },
+              {
+                "kind": "arg",
+                "path": "attempt"
+              }
             ]
           }
         },
@@ -260,7 +281,7 @@
         },
         {
           "name": "project_escrow_program",
-          "address": "GahY5Vp6SZ7zCHzECNa3fm8CfKdP4dvHaSoovGJtGr8i"
+          "address": "BN51NghxP4TMFDar5HVqngrwHG6kUqWbXkvhn9x9rbud"
         }
       ],
       "args": [
@@ -383,7 +404,7 @@
         },
         {
           "name": "project_escrow_program",
-          "address": "GahY5Vp6SZ7zCHzECNa3fm8CfKdP4dvHaSoovGJtGr8i"
+          "address": "BN51NghxP4TMFDar5HVqngrwHG6kUqWbXkvhn9x9rbud"
         },
         {
           "name": "rwa_state",
@@ -459,7 +480,7 @@
         },
         {
           "name": "rwa_token_program",
-          "address": "CjfnmvHpv9hK3q5dtSCR2ok35BaZATp7PaYCVn8fXY1c"
+          "address": "8HADZs66xrYco4Srsy2rmHioyxT4kGuEJupvGsSjk2Kp"
         },
         {
           "name": "system_program",
