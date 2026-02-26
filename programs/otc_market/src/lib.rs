@@ -5,7 +5,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface, TransferChecked};
 
 #[cfg(not(feature = "devnet"))]
-declare_id!("28hoarPFUJTqSJFg9gCQf1qpngkVMm63ZwcJV7X4GDkZ");
+declare_id!("Gm3e8Ky9mLBe2bjNbMh3qA3oVvaRca4p9BKKv3dLY7dD");
 #[cfg(feature = "devnet")]
 declare_id!("6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN");
 

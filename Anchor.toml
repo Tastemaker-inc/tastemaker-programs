@@ -15,13 +15,13 @@ rwa_transfer_hook = "HAC2Q2ecWgDXHt34bs1afuGqUsKfxycqd2MXuWHkRgRj"
 taste_token = "2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo"
 
 [programs.localnet]
-governance = "HaFSeWTYLFdqv4hdgJQAcCRehVbmbF9YoRjcaPct1Dex"
-otc_market = "28hoarPFUJTqSJFg9gCQf1qpngkVMm63ZwcJV7X4GDkZ"
-project_escrow = "BN51NghxP4TMFDar5HVqngrwHG6kUqWbXkvhn9x9rbud"
-revenue_distribution = "U7cFJVrg2GZkiRUsh9Tgp6vdmin7SjAif5aY1qfwYUV"
-rwa_token = "8HADZs66xrYco4Srsy2rmHioyxT4kGuEJupvGsSjk2Kp"
+governance = "AWYFhCcwsnMAsBRBRcTyFYHJBPmUJwfx2WxKGDgLap79"
+otc_market = "Gm3e8Ky9mLBe2bjNbMh3qA3oVvaRca4p9BKKv3dLY7dD"
+project_escrow = "EumKWobeYfq9Lx9zwVjfJvaghYC321cxENEcasKfuRrK"
+revenue_distribution = "dWGsAdXVDbU7oEoZPKu5rbCBDnSLvaoCjLAXBVr7i7Q"
+rwa_token = "8PTbAHnemqCN8gnvMqkUfa3SUkHAR7zFcLQsxryq7BoS"
 rwa_transfer_hook = "56LtERCqfVTv84E2AtL3jrKBdFXD8QxQN74NmoyJjBPn"
-taste_token = "CEwawQsr27EFM9en9JDiuaVLVgb69ePK9T441DcUSPkE"
+taste_token = "6cK45rigmh2Yj4aTGhmCmoxc85KFUepQfXjxehWCEAQM"
 
 [registry]
 url = "https://api.apr.dev"

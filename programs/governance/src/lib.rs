@@ -9,7 +9,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("HaFSeWTYLFdqv4hdgJQAcCRehVbmbF9YoRjcaPct1Dex");
+declare_id!("AWYFhCcwsnMAsBRBRcTyFYHJBPmUJwfx2WxKGDgLap79");
 #[cfg(feature = "devnet")]
 declare_id!("AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK");
 
@@ -325,7 +325,17 @@ pub mod governance {
         Ok(())
     }
 
-    pub fn finalize_proposal(ctx: Context<FinalizeProposal>) -> Result<()> {
+    pub fn finalize_proposal(
+        ctx: Context<FinalizeProposal>,
+        rights_type: rwa_token::RightsType,
+        revenue_split_bps: u16,
+        artist_split_bps: u16,
+        duration_secs: i64,
+        effective_from: i64,
+        terms_hash: [u8; 32],
+        terms_uri: String,
+        jurisdiction: String,
+    ) -> Result<()> {
         let proposal = &mut ctx.accounts.proposal;
         require!(
             proposal.status == ProposalStatus::Active,
@@ -461,6 +471,61 @@ pub mod governance {
                     signer_seeds,
                 );
                 rwa_token::cpi::initialize_rwa_metadata_by_governance(meta_cpi_ctx)?;
+            }
+
+            let last_milestone = ctx.accounts.project.current_milestone as usize
+                >= project_escrow::effective_milestone_count(
+                    &ctx.accounts.project.milestone_percentages,
+                );
+
+            if last_milestone && ctx.accounts.rwa_rights.lamports() == 0 {
+                let rights_cpi = CpiContext::new_with_signer(
+                    ctx.accounts.rwa_token_program.to_account_info(),
+                    rwa_token::cpi::accounts::InitializeRwaRightsByGovernance {
+                        payer: ctx.accounts.payer.to_account_info(),
+                        release_authority: ctx.accounts.release_authority.to_account_info(),
+                        config: ctx.accounts.escrow_config.to_account_info(),
+                        project: ctx.accounts.project.to_account_info(),
+                        rwa_state: ctx.accounts.rwa_state.to_account_info(),
+                        rwa_rights: ctx.accounts.rwa_rights.to_account_info(),
+                        system_program: ctx.accounts.system_program.to_account_info(),
+                    },
+                    signer_seeds,
+                );
+                rwa_token::cpi::initialize_rwa_rights_by_governance(
+                    rights_cpi,
+                    rights_type,
+                    revenue_split_bps,
+                    artist_split_bps,
+                    duration_secs,
+                    effective_from,
+                    terms_hash,
+                    terms_uri.clone(),
+                    jurisdiction.clone(),
+                )?;
+            }
+
+            if last_milestone && ctx.accounts.rev_config.lamports() == 0 {
+                let rev_cpi = CpiContext::new(
+                    ctx.accounts.revenue_distribution_program.to_account_info(),
+                    revenue_distribution::cpi::accounts::InitializeRevenueConfig {
+                        payer: ctx.accounts.payer.to_account_info(),
+                        project: ctx.accounts.project.to_account_info(),
+                        rwa_state: ctx.accounts.rwa_state.to_account_info(),
+                        rev_config: ctx.accounts.rev_config.to_account_info(),
+                        rwa_mint: ctx.accounts.rwa_mint.to_account_info(),
+                        rev_vault_authority: ctx.accounts.rev_vault_authority.to_account_info(),
+                        rev_vault: ctx.accounts.rev_vault.to_account_info(),
+                        taste_mint: ctx.accounts.taste_mint.to_account_info(),
+                        token_program: ctx.accounts.token_program.to_account_info(),
+                        associated_token_program: ctx
+                            .accounts
+                            .associated_token_program
+                            .to_account_info(),
+                        system_program: ctx.accounts.system_program.to_account_info(),
+                    },
+                );
+                revenue_distribution::cpi::initialize_revenue_config(rev_cpi)?;
             }
         }
         let status_str = if passed { "Passed" } else { "Rejected" };
@@ -839,6 +904,25 @@ pub struct FinalizeProposal<'info> {
     pub sysvar_instructions: UncheckedAccount<'info>,
 
     pub rwa_token_program: Program<'info, rwa_token::program::RwaToken>,
+
+    /// RwaRights PDA. Uninitialized until last milestone. CHECK: validated by rwa_token CPI.
+    #[account(mut)]
+    pub rwa_rights: UncheckedAccount<'info>,
+
+    /// Revenue config PDA. Uninitialized until last milestone. CHECK: validated by revenue_distribution CPI.
+    #[account(mut)]
+    pub rev_config: UncheckedAccount<'info>,
+
+    /// Revenue vault authority PDA [b"rev_vault", project]. CHECK: validated by revenue_distribution CPI.
+    pub rev_vault_authority: UncheckedAccount<'info>,
+
+    /// Revenue vault ATA (taste_mint, rev_vault_authority). Mut for init. CHECK: validated by revenue_distribution CPI.
+    #[account(mut)]
+    pub rev_vault: UncheckedAccount<'info>,
+
+    pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
+
+    pub revenue_distribution_program: Program<'info, revenue_distribution::program::RevenueDistribution>,
 
     pub system_program: Program<'info, System>,
 }

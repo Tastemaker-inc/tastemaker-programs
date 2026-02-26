@@ -8,7 +8,7 @@ use project_escrow::{Project, ProjectStatus};
 use rwa_token::RwaState;
 
 #[cfg(not(feature = "devnet"))]
-declare_id!("U7cFJVrg2GZkiRUsh9Tgp6vdmin7SjAif5aY1qfwYUV");
+declare_id!("dWGsAdXVDbU7oEoZPKu5rbCBDnSLvaoCjLAXBVr7i7Q");
 #[cfg(feature = "devnet")]
 declare_id!("C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK");
 
@@ -21,10 +21,6 @@ pub mod revenue_distribution {
         require!(
             ctx.accounts.project.status == ProjectStatus::Completed,
             RevError::ProjectNotCompleted
-        );
-        require!(
-            ctx.accounts.rwa_state.minted > 0,
-            RevError::NoRwaTokensMinted
         );
 
         let config = &mut ctx.accounts.rev_config;
@@ -45,6 +41,10 @@ pub mod revenue_distribution {
         require!(
             ctx.accounts.artist_authority.key() == ctx.accounts.rev_config.artist_authority,
             RevError::NotArtist
+        );
+        require!(
+            ctx.accounts.rwa_state.minted > 0,
+            RevError::NoRwaTokensMinted
         );
 
         let config = &mut ctx.accounts.rev_config;

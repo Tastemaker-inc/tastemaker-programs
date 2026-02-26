@@ -483,11 +483,45 @@
           "address": "8HADZs66xrYco4Srsy2rmHioyxT4kGuEJupvGsSjk2Kp"
         },
         {
+          "name": "rwa_rights",
+          "docs": ["RwaRights PDA. Uninitialized until last milestone."],
+          "writable": true
+        },
+        {
+          "name": "rev_config",
+          "docs": ["Revenue config PDA. Uninitialized until last milestone."],
+          "writable": true
+        },
+        {
+          "name": "rev_vault_authority",
+          "docs": ["Revenue vault authority PDA [b\"rev_vault\", project]."]
+        },
+        {
+          "name": "rev_vault",
+          "docs": ["Revenue vault ATA (taste_mint, rev_vault_authority)."],
+          "writable": true
+        },
+        {
+          "name": "associated_token_program"
+        },
+        {
+          "name": "revenue_distribution_program"
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        { "name": "rights_type", "type": { "defined": { "name": "RightsType" } } },
+        { "name": "revenue_split_bps", "type": "u16" },
+        { "name": "artist_split_bps", "type": "u16" },
+        { "name": "duration_secs", "type": "i64" },
+        { "name": "effective_from", "type": "i64" },
+        { "name": "terms_hash", "type": { "array": ["u8", 32] } },
+        { "name": "terms_uri", "type": "string" },
+        { "name": "jurisdiction", "type": "string" }
+      ]
     },
     {
       "name": "initialize_config",

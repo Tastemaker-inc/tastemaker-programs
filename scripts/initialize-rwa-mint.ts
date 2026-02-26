@@ -18,7 +18,7 @@
  * Total supply is fixed at 1_000_000 * 1_000_000 (same as governance CPI).
  *
  * Prerequisite: initialize_rwa_config must have been called once (by upgrade authority)
- * to set the transfer hook program ID. Run init-rwa-config.ts first if needed.
+ * to set the transfer hook program ID. Run: npm run init-rwa-config (see public_docs/DEPLOY_DEVNET.md).
  */
 
 import * as anchor from "@coral-xyz/anchor";

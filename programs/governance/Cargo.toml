@@ -21,6 +21,7 @@ devnet = ["project_escrow/devnet", "rwa_token/devnet"]
 
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
-  anchor-spl = { version = "0.32.1", features = ["token"] }
+  anchor-spl = { version = "0.32.1", features = ["token", "associated_token"] }
 project_escrow = { path = "../project_escrow", features = ["cpi"] }
 rwa_token = { path = "../rwa_token", features = ["cpi"] }
+revenue_distribution = { path = "../revenue_distribution", features = ["cpi"] }

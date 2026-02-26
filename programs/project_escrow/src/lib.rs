@@ -15,7 +15,7 @@ use mpl_token_metadata::{
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("BN51NghxP4TMFDar5HVqngrwHG6kUqWbXkvhn9x9rbud");
+declare_id!("EumKWobeYfq9Lx9zwVjfJvaghYC321cxENEcasKfuRrK");
 #[cfg(feature = "devnet")]
 declare_id!("bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym");
 

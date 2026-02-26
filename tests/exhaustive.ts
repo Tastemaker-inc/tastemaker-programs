@@ -270,7 +270,11 @@ async function sendFinalizeProposalV0(
     vt.sign([payer, ...signers]);
     try {
       const sig = await connection.sendTransaction(vt, { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 });
-      await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+      const CONFIRM_TIMEOUT_MS = 90_000;
+      await Promise.race([
+        connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed"),
+        new Promise<void>((_, rej) => setTimeout(() => rej(new Error("confirmTransaction timed out after " + CONFIRM_TIMEOUT_MS + "ms")), CONFIRM_TIMEOUT_MS)),
+      ]);
       return sig;
     } catch (e) {
       lastErr = e;
@@ -289,6 +293,34 @@ function getProviderPayerKeypair(provider: anchor.AnchorProvider): Keypair {
   const keypairPath = process.env.ANCHOR_WALLET ?? path.join(process.env.HOME ?? require("os").homedir(), ".config", "solana", "id.json");
   const secret = JSON.parse(fs.readFileSync(keypairPath, "utf8")) as number[];
   return Keypair.fromSecretKey(Uint8Array.from(secret));
+}
+
+/** Ensure artist TASTE ATA exists and is visible (create if missing, then poll until getAccountInfo sees it). Avoids AccountNotInitialized on finalize when validator lags. */
+async function ensureArtistAta(
+  connection: Connection,
+  artistAta: PublicKey,
+  artist: Keypair,
+  tasteMint: PublicKey
+): Promise<void> {
+  let info = await connection.getAccountInfo(artistAta);
+  if (!info) {
+    const tx = new Transaction().add(
+      createAssociatedTokenAccountInstruction(
+        artist.publicKey,
+        artistAta,
+        artist.publicKey,
+        tasteMint,
+        TOKEN_2022_PROGRAM_ID
+      )
+    );
+    await sendAndConfirmTransaction(connection, tx, [artist], { commitment: "confirmed", preflightCommitment: "confirmed" });
+  }
+  for (let i = 0; i < 10; i++) {
+    info = await connection.getAccountInfo(artistAta);
+    if (info) return;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error("Artist ATA still not visible after create; validator may be lagging");
 }
 
 function getDistributionEpochPda(project: PublicKey, epochIndex: number, revenueDistributionProgramId: PublicKey): PublicKey {
@@ -1539,19 +1571,7 @@ describe("tastemaker-programs exhaustive", function () {
         await new Promise((r) => setTimeout(r, SLEEP_MS));
 
         const twoMilestoneArtistAta = getAssociatedTokenAddressSync(tasteMint, twoMilestoneArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
-        let artistAtaInfo = await provider.connection.getAccountInfo(twoMilestoneArtistAta);
-        if (!artistAtaInfo) {
-          const tx = new Transaction().add(
-            createAssociatedTokenAccountInstruction(
-              twoMilestoneArtist.publicKey,
-              twoMilestoneArtistAta,
-              twoMilestoneArtist.publicKey,
-              tasteMint,
-              TOKEN_2022_PROGRAM_ID
-            )
-          );
-          await sendAndConfirmTransaction(provider.connection, tx, [twoMilestoneArtist]);
-        }
+        await ensureArtistAta(provider.connection, twoMilestoneArtistAta, twoMilestoneArtist, tasteMint);
 
         const { rwaState, rwaMint, rwaMintAuthority, rwaConfig, rwaExtraAccountMetas, rwaMetadataGuard, rwaMetadata } = getRwaPdas(twoMilestoneProjectPda, rwaTokenProgramId);
         const twoMsRwaAccounts = getFinalizeProposalRwaAccounts(twoMilestoneProjectPda, tasteMint, rwaTokenProgramId, revenueDistributionProgramId);
@@ -2461,19 +2481,7 @@ describe("tastemaker-programs exhaustive", function () {
           projectEscrowProgramId
         )[0];
         const legacyArtistAta = getAssociatedTokenAddressSync(tasteMint, legacyArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
-        let legacyArtistAtaInfo = await provider.connection.getAccountInfo(legacyArtistAta);
-        if (!legacyArtistAtaInfo) {
-          const tx = new Transaction().add(
-            createAssociatedTokenAccountInstruction(
-              legacyArtist.publicKey,
-              legacyArtistAta,
-              legacyArtist.publicKey,
-              tasteMint,
-              TOKEN_2022_PROGRAM_ID
-            )
-          );
-          await sendAndConfirmTransaction(provider.connection, tx, [legacyArtist]);
-        }
+        await ensureArtistAta(provider.connection, legacyArtistAta, legacyArtist, tasteMint);
         const { rwaState: legacyRwaStatePdaPre, rwaMint: legacyRwaMintPdaPre, rwaMintAuthority: legacyRwaMintAuthorityPre, rwaConfig: legacyRwaConfig, rwaExtraAccountMetas: legacyRwaExtraAccountMetas, rwaMetadataGuard: legacyRwaMetadataGuard, rwaMetadata: legacyRwaMetadata } = getRwaPdas(legacyProjectPda, rwaTokenProgramId);
         const legacyRwaAccounts = getFinalizeProposalRwaAccounts(legacyProjectPda, tasteMint, rwaTokenProgramId, revenueDistributionProgramId);
         const legacyFinalizeBuilder = governance.methods
@@ -3436,7 +3444,8 @@ describe("tastemaker-programs exhaustive", function () {
       ).to.be.rejectedWith(/VotingNotEnded|voting period has not ended|0x1773/);
     });
 
-    it("finalize after end_ts without remaining accounts succeeds (optional Config/VoteWeight regression)", async () => {
+    it("finalize after end_ts without remaining accounts succeeds (optional Config/VoteWeight regression)", async function () {
+      this.timeout(120_000);
       const noRemArtist = Keypair.generate();
       await airdrop(noRemArtist.publicKey);
       const noRemProjectPda = getProjectPda(noRemArtist.publicKey, 0, projectEscrowProgramId);
@@ -3528,15 +3537,7 @@ describe("tastemaker-programs exhaustive", function () {
         .rpc();
       await new Promise((r) => setTimeout(r, 3500));
       const noRemArtistAta = getAssociatedTokenAddressSync(tasteMint, noRemArtist.publicKey, false, TOKEN_2022_PROGRAM_ID);
-      {
-        const ataInfo = await provider.connection.getAccountInfo(noRemArtistAta);
-        if (!ataInfo) {
-          const ataTx = new Transaction().add(
-            createAssociatedTokenAccountInstruction(noRemArtist.publicKey, noRemArtistAta, noRemArtist.publicKey, tasteMint, TOKEN_2022_PROGRAM_ID)
-          );
-          await sendAndConfirmTransaction(provider.connection, ataTx, [noRemArtist]);
-        }
-      }
+      await ensureArtistAta(provider.connection, noRemArtistAta, noRemArtist, tasteMint);
       const noRemRwa = getRwaPdas(noRemProjectPda, rwaTokenProgramId);
       const noRemRwaAccounts = getFinalizeProposalRwaAccounts(noRemProjectPda, tasteMint, rwaTokenProgramId, revenueDistributionProgramId);
       const noRemAlt = await createAltForFinalize(
@@ -4311,6 +4312,7 @@ describe("tastemaker-programs exhaustive", function () {
     });
 
     it("material-edit proposal rejected: finalize does not apply material edit", async () => {
+      if (!rejectProjectPda) throw new Error("rejectProjectPda not set; parent test 'proposal rejected' may have failed or been skipped");
       const projectTermsPda = getProjectTermsPda(rejectProjectPda, projectEscrowProgramId);
       const termsBefore = await (projectEscrow.account as { projectTerms: { fetch: (p: PublicKey) => Promise<{ version: number; refundWindowEnd: { toNumber: () => number } }> } }).projectTerms.fetch(projectTermsPda);
 

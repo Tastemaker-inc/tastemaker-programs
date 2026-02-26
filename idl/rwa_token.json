@@ -1203,6 +1203,108 @@
       ]
     },
     {
+      "name": "initialize_rwa_rights_by_governance",
+      "docs": [
+        "One-time init of RwaRights by governance (last-milestone finalize). Callable only by config.governance_release_authority."
+      ],
+      "discriminator": [
+        232,
+        100,
+        102,
+        206,
+        20,
+        224,
+        66,
+        216
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "release_authority",
+          "signer": true
+        },
+        {
+          "name": "config"
+        },
+        {
+          "name": "project"
+        },
+        {
+          "name": "rwa_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [114, 119, 97, 95, 115, 116, 97, 116, 101]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rwa_rights",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [114, 119, 97, 95, 114, 105, 103, 104, 116, 115]
+              },
+              {
+                "kind": "account",
+                "path": "project"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "rights_type",
+          "type": { "defined": { "name": "RightsType" } }
+        },
+        {
+          "name": "revenue_split_bps",
+          "type": "u16"
+        },
+        {
+          "name": "artist_split_bps",
+          "type": "u16"
+        },
+        {
+          "name": "duration_secs",
+          "type": "i64"
+        },
+        {
+          "name": "effective_from",
+          "type": "i64"
+        },
+        {
+          "name": "terms_hash",
+          "type": { "array": ["u8", 32] }
+        },
+        {
+          "name": "terms_uri",
+          "type": "string"
+        },
+        {
+          "name": "jurisdiction",
+          "type": "string"
+        }
+      ]
+    },
+    {
       "name": "update_rwa_rights",
       "docs": [
         "Update terms_hash and terms_uri (e.g. after a material-edit governance pass). Callable by rwa_state.authority."

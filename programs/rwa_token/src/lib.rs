@@ -183,7 +183,7 @@ use project_escrow::{Backer, Project, ProjectStatus};
 // We support devnet vs localnet IDs via a build-time feature so CI/local tests keep working.
 // Localnet first so `anchor keys sync` updates it to match target/deploy keypairs; build (no devnet) then uses keypair ID.
 #[cfg(not(feature = "devnet"))]
-declare_id!("8HADZs66xrYco4Srsy2rmHioyxT4kGuEJupvGsSjk2Kp");
+declare_id!("8PTbAHnemqCN8gnvMqkUfa3SUkHAR7zFcLQsxryq7BoS");
 #[cfg(feature = "devnet")]
 declare_id!("GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE");
 
@@ -191,6 +191,23 @@ declare_id!("GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE");
 const MAX_NAME_LEN: usize = 32;
 const MAX_SYMBOL_LEN: usize = 10;
 const MAX_URI_LEN: usize = 200;
+
+/// Suffix added to project name for RWA metadata: " Share" (6 bytes).
+const RWA_NAME_SUFFIX: &str = " Share";
+/// Max length for the project-name part so that (project_part + RWA_NAME_SUFFIX).len() <= MAX_NAME_LEN.
+const MAX_PROJECT_NAME_PART_LEN: usize = MAX_NAME_LEN - RWA_NAME_SUFFIX.len();
+
+/// Truncates `s` to at most `max_bytes` at a UTF-8 character boundary.
+fn truncate_to_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut len = max_bytes;
+    while len > 0 && !s.is_char_boundary(len) {
+        len -= 1;
+    }
+    &s[..len]
+}
 
 /// Base URL for RWA metadata API (used by initialize_rwa_metadata_by_governance).
 const RWA_METADATA_BASE_URL: &str = "https://tastemaker.music";
@@ -399,6 +416,53 @@ pub mod rwa_token {
         rights.terms_hash = new_terms_hash;
         rights.terms_uri = new_terms_uri;
         msg!("RwaRights updated for project {}", rights.project);
+        Ok(())
+    }
+
+    /// One-time init of RwaRights by governance (last-milestone finalize). Callable only by config.governance_release_authority.
+    pub fn initialize_rwa_rights_by_governance(
+        ctx: Context<InitializeRwaRightsByGovernance>,
+        rights_type: RightsType,
+        revenue_split_bps: u16,
+        artist_split_bps: u16,
+        duration_secs: i64,
+        effective_from: i64,
+        terms_hash: [u8; 32],
+        terms_uri: String,
+        jurisdiction: String,
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.release_authority.key() == ctx.accounts.config.governance_release_authority,
+            RwaError::NotReleaseAuthority
+        );
+        require!(
+            revenue_split_bps.saturating_add(artist_split_bps) <= 10_000,
+            RwaError::InvalidSplit
+        );
+        require!(
+            terms_uri.len() <= MAX_TERMS_URI_LEN,
+            RwaError::TermsUriTooLong
+        );
+        require!(
+            jurisdiction.len() <= MAX_JURISDICTION_LEN,
+            RwaError::JurisdictionTooLong
+        );
+
+        let rights = &mut ctx.accounts.rwa_rights;
+        rights.project = ctx.accounts.rwa_state.project;
+        rights.rights_type = rights_type;
+        rights.revenue_split_bps = revenue_split_bps;
+        rights.artist_split_bps = artist_split_bps;
+        rights.duration_secs = duration_secs;
+        rights.effective_from = effective_from;
+        rights.terms_hash = terms_hash;
+        rights.terms_uri = terms_uri;
+        rights.jurisdiction = jurisdiction;
+
+        msg!(
+            "RwaRights initialized by governance for project {}",
+            rights.project
+        );
         Ok(())
     }
 
@@ -674,7 +738,8 @@ pub mod rwa_token {
         let name = if project.name.trim().is_empty() {
             "Ownership Share".to_string()
         } else {
-            format!("{} Share", project.name.trim())
+            let part = truncate_to_char_boundary(project.name.trim(), MAX_PROJECT_NAME_PART_LEN);
+            format!("{}{}", part, RWA_NAME_SUFFIX)
         };
         require!(name.len() <= MAX_NAME_LEN, RwaError::MetadataNameTooLong);
         let symbol = "RWA".to_string();
@@ -862,6 +927,36 @@ pub struct InitializeRwaRights<'info> {
         payer = authority,
         space = 8 + 32 + 1 + 2 + 2 + 8 + 8 + 32 + 4 + MAX_TERMS_URI_LEN + 4 + MAX_JURISDICTION_LEN,
         seeds = [b"rwa_rights", rwa_state.project.as_ref()],
+        bump,
+    )]
+    pub rwa_rights: Account<'info, RwaRights>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeRwaRightsByGovernance<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    /// Must equal config.governance_release_authority (validated in instruction).
+    pub release_authority: Signer<'info>,
+
+    pub config: Account<'info, project_escrow::Config>,
+    pub project: Account<'info, Project>,
+
+    #[account(
+        constraint = rwa_state.project == project.key(),
+        seeds = [b"rwa_state", project.key().as_ref()],
+        bump,
+    )]
+    pub rwa_state: Account<'info, RwaState>,
+
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + 32 + 1 + 2 + 2 + 8 + 8 + 32 + 4 + MAX_TERMS_URI_LEN + 4 + MAX_JURISDICTION_LEN,
+        seeds = [b"rwa_rights", project.key().as_ref()],
         bump,
     )]
     pub rwa_rights: Account<'info, RwaRights>,

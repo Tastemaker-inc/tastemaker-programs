@@ -69,7 +69,13 @@ After deploying, run these once so devnet can use short voting periods and early
      `SOLANA_RPC_URL=https://api.devnet.solana.com SOLANA_KEYPAIR=~/.config/solana/devnet-deploy.json npm run init-governance-config`
    - Optional env: `MIN_VOTING_PERIOD_SECS=60` (default 60); `GOVERNANCE_PROGRAM_ID` to override program id.
 
-2. **Vote-weight backfill** (for existing projects that already have backers; new projects get vote weight on first fund):
+2. **RWA config** (required before any project can complete — finalize last milestone creates the RWA mint):
+   - From `tastemaker-programs/`:  
+     `SOLANA_RPC_URL=https://api.devnet.solana.com SOLANA_KEYPAIR=~/.config/solana/devnet-deploy.json npm run init-rwa-config`
+   - Optional env: `RWA_TOKEN_PROGRAM_ID`, `RWA_TRANSFER_HOOK_PROGRAM_ID` to override (defaults = devnet IDs).
+   - Without this, finalizing the last milestone fails with `AccountNotInitialized` (rwa_config).
+
+3. **Vote-weight backfill** (for existing projects that already have backers; new projects get vote weight on first fund):
    - For each project PDA that existed before vote-weight was added:  
      `npm run backfill-vote-weight-pdas -- <PROJECT_PDA>`
    - Same env as above; optional `PROJECT_ESCROW_PROGRAM_ID` to override.

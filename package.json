@@ -12,6 +12,7 @@
     "init-taste-mint": "ts-node scripts/init-taste-mint.ts",
     "init-escrow-config": "ts-node scripts/init-escrow-config.ts",
     "init-governance-config": "ts-node scripts/init-governance-config.ts",
+    "init-rwa-config": "ts-node scripts/init-rwa-config.ts",
     "backfill-vote-weight-pdas": "ts-node scripts/backfill-vote-weight-pdas.ts",
     "add-taste-metadata": "ts-node scripts/add-taste-metadata.ts",
     "initialize-rwa-mint": "ts-node scripts/initialize-rwa-mint.ts",
