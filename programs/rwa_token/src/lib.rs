@@ -432,7 +432,8 @@ pub mod rwa_token {
         jurisdiction: String,
     ) -> Result<()> {
         require!(
-            ctx.accounts.release_authority.key() == ctx.accounts.config.governance_release_authority,
+            ctx.accounts.release_authority.key()
+                == ctx.accounts.config.governance_release_authority,
             RwaError::NotReleaseAuthority
         );
         require!(

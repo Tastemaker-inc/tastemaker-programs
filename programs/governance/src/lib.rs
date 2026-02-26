@@ -922,7 +922,8 @@ pub struct FinalizeProposal<'info> {
 
     pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
 
-    pub revenue_distribution_program: Program<'info, revenue_distribution::program::RevenueDistribution>,
+    pub revenue_distribution_program:
+        Program<'info, revenue_distribution::program::RevenueDistribution>,
 
     pub system_program: Program<'info, System>,
 }
