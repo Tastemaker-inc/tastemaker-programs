@@ -325,6 +325,7 @@ pub mod governance {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn finalize_proposal(
         ctx: Context<FinalizeProposal>,
         rights_type: rwa_token::RightsType,
