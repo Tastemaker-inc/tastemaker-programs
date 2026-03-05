@@ -76,7 +76,21 @@ echo "Building and deploying programs..."
 # Use --ignore-keys so built binary declare_id matches Anchor.toml [programs.localnet] (avoids DeclaredProgramIdMismatch).
 ANCHOR_WALLET="$TEST_WALLET" anchor build --ignore-keys -- --features test 2>/dev/null || \
   ANCHOR_WALLET="$TEST_WALLET" anchor build -- --features test
-ANCHOR_WALLET="$TEST_WALLET" anchor deploy --provider.cluster localnet --provider.wallet "$TEST_WALLET"
+
+# Deploy each program so progress is visible (avoids "stuck at project_escrow" — each can take 20–60s).
+PROGRAMS=(governance otc_market project_escrow revenue_distribution rwa_token taste_token)
+for prog in "${PROGRAMS[@]}"; do
+  SO="${ROOT_DIR}/target/deploy/${prog}.so"
+  KP="${ROOT_DIR}/target/deploy/${prog}-keypair.json"
+  if [ -f "$SO" ] && [ -f "$KP" ]; then
+    echo "Deploying program \"${prog}\"... (may take 30–60s for large programs)"
+    if ! solana program deploy -u http://127.0.0.1:8899 "$SO" --program-id "$KP" --keypair "$TEST_WALLET"; then
+      echo "Failed to deploy ${prog}. Check .validator-test.log if validator is slow." >&2
+      exit 1
+    fi
+    echo "Deployed ${prog}."
+  fi
+done
 
 # Deploy rwa_transfer_hook (native program) so RWA/revenue greps work (e.g. test:grep "rwa_token").
 RWA_HOOK_SO="${ROOT_DIR}/target/deploy/rwa_transfer_hook.so"

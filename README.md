@@ -29,7 +29,7 @@ anchor build
 
 ## IDL
 
-Pre-built IDL JSON files for each program are in the [`idl/`](idl/) directory. They use the **devnet** program IDs from the table below and match `Anchor.toml` `[programs.devnet]` and the web app (`web/lib/constants.ts`). Use them with `@coral-xyz/anchor` or other clients without building from source. Regenerate after program changes with `anchor build` then copy `target/idl/*.json` into `idl/` (and run the governance PDA patch if needed; see `scripts/patch-governance-idl.cjs`).
+Pre-built IDL JSON files for each program are in the [`idl/`](idl/) directory. They use the **devnet** program IDs from the table below and match `Anchor.toml` `[programs.devnet]` and the web app (`web/lib/constants.ts`). Use them with `@coral-xyz/anchor` or other clients without building from source. Regenerate after program changes with `anchor build`, run `scripts/patch-governance-idl.cjs` (adds proposal PDA seeds and merges `RightsType` from rwa_token for TS client compatibility), then copy `target/idl/*.json` into `idl/`.
 
 ## Test
 

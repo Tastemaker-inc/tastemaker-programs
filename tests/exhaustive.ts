@@ -2313,16 +2313,103 @@ describe("tastemaker-programs exhaustive", function () {
       ).to.be.rejectedWith(/AlreadyClaimed|already claimed|0x/i);
     });
 
-    it("close_epoch", async () => {
+    it("close_epoch fails when epoch has unclaimed revenue", async () => {
+      const revConfigPda = getRevConfigPda(projectPda, revenueDistributionProgramId);
+      const revVaultAuthorityPda = getRevVaultAuthorityPda(projectPda, revenueDistributionProgramId);
+      const revVault = getAssociatedTokenAddressSync(tasteMint, revVaultAuthorityPda, true, TOKEN_2022_PROGRAM_ID);
+      const artistDest = getAssociatedTokenAddressSync(tasteMint, artist.publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const config = await (revenueDistribution.account as Record<string, { fetch: (p: PublicKey) => Promise<{ epochCount: { toString: () => string } }> }>).revenueConfig.fetch(revConfigPda) as { epochCount: { toString: () => string } };
+      const epochIndex = Number(config.epochCount.toString()) - 1;
+      const distributionEpochPda = getDistributionEpochPda(projectPda, epochIndex, revenueDistributionProgramId);
+      await expect(
+        revenueDistribution.methods
+          .closeEpoch()
+          .accounts({
+            authority: artist.publicKey,
+            revConfig: revConfigPda,
+            distributionEpoch: distributionEpochPda,
+            revVaultAuthority: revVaultAuthorityPda,
+            revVault,
+            artistDest,
+            tasteMint,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          })
+          .signers([artist])
+          .rpc()
+      ).to.be.rejectedWith(/EpochNotFullyClaimed|unclaimed|0x/i);
+    });
+
+    it("close_epoch succeeds after all backers claim (rent reclamation only)", async () => {
       const revConfigPda = getRevConfigPda(projectPda, revenueDistributionProgramId);
       const revVaultAuthorityPda = getRevVaultAuthorityPda(projectPda, revenueDistributionProgramId);
       const revVault = getAssociatedTokenAddressSync(tasteMint, revVaultAuthorityPda, true, TOKEN_2022_PROGRAM_ID);
       const config = await (revenueDistribution.account as Record<string, { fetch: (p: PublicKey) => Promise<{ epochCount: { toString: () => string } }> }>).revenueConfig.fetch(revConfigPda) as { epochCount: { toString: () => string } };
       const epochIndex = Number(config.epochCount.toString()) - 1;
       const distributionEpochPda = getDistributionEpochPda(projectPda, epochIndex, revenueDistributionProgramId);
+      const holdersWithBalance: { holder: Keypair; amount: bigint }[] = [];
+      const getRwaBalance = async (ata: PublicKey): Promise<bigint> => {
+        try {
+          const acc = await getAccount(provider.connection, ata, "confirmed", TOKEN_2022_PROGRAM_ID);
+          return BigInt(acc.amount.toString());
+        } catch {
+          const info = await provider.connection.getAccountInfo(ata, "confirmed");
+          if (!info?.data || info.data.length < 72) return 0n;
+          return info.data.readBigUInt64LE(64);
+        }
+      };
+      for (const holder of backers) {
+        const holderRwaAta = getAssociatedTokenAddressSync(rwaMintPda, holder.publicKey, false, TOKEN_2022_PROGRAM_ID);
+        const amt = await getRwaBalance(holderRwaAta);
+        if (amt > 0n) holdersWithBalance.push({ holder, amount: amt });
+      }
+      expect(holdersWithBalance.length, "all backers with RWA must be included for close_epoch").to.equal(backers.length);
+      holdersWithBalance.sort((a, b) => (a.amount > b.amount ? -1 : a.amount < b.amount ? 1 : 0));
+      const claimOne = async (holder: Keypair): Promise<boolean> => {
+        const holderRwaAta = getAssociatedTokenAddressSync(rwaMintPda, holder.publicKey, false, TOKEN_2022_PROGRAM_ID);
+        const holderDest = getAssociatedTokenAddressSync(tasteMint, holder.publicKey, false, TOKEN_2022_PROGRAM_ID);
+        let destInfo = await provider.connection.getAccountInfo(holderDest);
+        if (!destInfo) {
+          const tx = new Transaction().add(
+            createAssociatedTokenAccountInstruction(holder.publicKey, holderDest, holder.publicKey, tasteMint, TOKEN_2022_PROGRAM_ID)
+          );
+          await sendAndConfirmTransaction(provider.connection, tx, [holder]);
+        }
+        const holderClaimPda = getHolderClaimPda(projectPda, epochIndex, holder.publicKey, revenueDistributionProgramId);
+        try {
+          await revenueDistribution.methods
+            .claimRevenue()
+            .accounts({
+              holder: holder.publicKey,
+              revConfig: revConfigPda,
+              distributionEpoch: distributionEpochPda,
+              holderRwaAccount: holderRwaAta,
+              holderDest,
+              holderClaim: holderClaimPda,
+              revVaultAuthority: revVaultAuthorityPda,
+              revVault,
+              tasteMint,
+              tokenProgram: TOKEN_2022_PROGRAM_ID,
+              associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([holder])
+            .rpc();
+          return true;
+        } catch (e: unknown) {
+          const msg = (e as Error).message ?? String(e);
+          if (/AlreadyClaimed|already claimed|0x/i.test(msg)) return false;
+          if (/ZeroShare|zero share/i.test(msg)) return false;
+          throw e;
+        }
+      };
+      for (const { holder } of holdersWithBalance) {
+        await claimOne(holder);
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      const epochBefore = await provider.connection.getAccountInfo(distributionEpochPda);
+      expect(epochBefore).to.not.be.null;
       const artistDest = getAssociatedTokenAddressSync(tasteMint, artist.publicKey, false, TOKEN_2022_PROGRAM_ID);
-      const vaultBefore = (await getAccount(provider.connection, revVault, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
-      const artistBefore = (await getAccount(provider.connection, artistDest, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
       await revenueDistribution.methods
         .closeEpoch()
         .accounts({
@@ -2339,10 +2426,8 @@ describe("tastemaker-programs exhaustive", function () {
         .signers([artist])
         .rpc();
       await new Promise((r) => setTimeout(r, 500));
-      const vaultAfter = (await getAccount(provider.connection, revVault, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
-      const artistAfter = (await getAccount(provider.connection, artistDest, "confirmed", TOKEN_2022_PROGRAM_ID)).amount;
-      expect(Number(vaultAfter)).to.equal(0);
-      expect(Number(artistAfter)).to.be.greaterThan(Number(artistBefore));
+      const epochAfter = await provider.connection.getAccountInfo(distributionEpochPda);
+      expect(epochAfter).to.be.null;
     });
   });
 

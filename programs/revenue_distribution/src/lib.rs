@@ -8,7 +8,7 @@ use project_escrow::{Project, ProjectStatus};
 use rwa_token::RwaState;
 
 #[cfg(not(feature = "devnet"))]
-declare_id!("dWGsAdXVDbU7oEoZPKu5rbCBDnSLvaoCjLAXBVr7i7Q");
+declare_id!("G6LyqAfthk5xhNzCoMLGaMka1Sb5WxisLnwZ8RsbqazP");
 #[cfg(feature = "devnet")]
 declare_id!("C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK");
 
@@ -51,6 +51,7 @@ pub mod revenue_distribution {
         let epoch_index = config.epoch_count;
         config.epoch_count = epoch_index.checked_add(1).ok_or(RevError::Overflow)?;
 
+        let clock = Clock::get()?;
         let epoch = &mut ctx.accounts.distribution_epoch;
         epoch.project = config.project;
         epoch.epoch_index = epoch_index;
@@ -58,6 +59,7 @@ pub mod revenue_distribution {
         epoch.total_rwa_supply = ctx.accounts.rwa_state.minted;
         epoch.claimed_count = 0;
         epoch.total_claimed = 0;
+        epoch.created_at = clock.unix_timestamp;
 
         anchor_spl::token_interface::transfer_checked(
             CpiContext::new(
@@ -98,11 +100,13 @@ pub mod revenue_distribution {
         let holder_balance = ctx.accounts.holder_rwa_account.amount;
         require!(holder_balance > 0, RevError::NoRwaBalance);
 
-        let share = (holder_balance as u128)
+        let computed = (holder_balance as u128)
             .checked_mul(epoch.amount as u128)
             .ok_or(RevError::Overflow)?
             .checked_div(epoch.total_rwa_supply as u128)
             .ok_or(RevError::Overflow)? as u64;
+        let remaining = epoch.amount.saturating_sub(epoch.total_claimed);
+        let share = computed.min(remaining);
 
         require!(share > 0, RevError::ZeroShare);
 
@@ -149,7 +153,8 @@ pub mod revenue_distribution {
         Ok(())
     }
 
-    /// Authority closes an epoch after claim deadline, sweeping unclaimed funds to artist.
+    /// Authority closes an epoch only when all revenue has been claimed (rent reclamation only).
+    /// Unclaimed revenue stays in the vault until the backer claims it.
     pub fn close_epoch(ctx: Context<CloseEpoch>) -> Result<()> {
         let config = &ctx.accounts.rev_config;
         let epoch = &ctx.accounts.distribution_epoch;
@@ -161,29 +166,8 @@ pub mod revenue_distribution {
         require!(epoch.project == config.project, RevError::EpochMismatch);
 
         let remaining = epoch.amount.saturating_sub(epoch.total_claimed);
-
-        if remaining > 0 {
-            let (_vault_authority, bump) = Pubkey::find_program_address(
-                &[b"rev_vault", config.project.as_ref()],
-                ctx.program_id,
-            );
-            let seeds: &[&[u8]] = &[b"rev_vault", config.project.as_ref(), &[bump]];
-
-            anchor_spl::token_interface::transfer_checked(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.rev_vault.to_account_info(),
-                        mint: ctx.accounts.taste_mint.to_account_info(),
-                        to: ctx.accounts.artist_dest.to_account_info(),
-                        authority: ctx.accounts.rev_vault_authority.to_account_info(),
-                    },
-                    &[seeds],
-                ),
-                remaining,
-                ctx.accounts.taste_mint.decimals,
-            )?;
-        }
+        let dust_cap = epoch.claimed_count.max(1);
+        require!(remaining <= dust_cap, RevError::EpochNotFullyClaimed);
 
         msg!(
             "Closed epoch {} for project {}",
@@ -216,6 +200,8 @@ pub enum RevError {
     ZeroShare,
     #[msg("Already claimed for this epoch")]
     AlreadyClaimed,
+    #[msg("Epoch not fully claimed; close only when all revenue claimed or dust remains")]
+    EpochNotFullyClaimed,
 }
 
 #[account]
@@ -236,6 +222,7 @@ pub struct DistributionEpoch {
     pub total_rwa_supply: u64,
     pub claimed_count: u64,
     pub total_claimed: u64,
+    pub created_at: i64,
 }
 
 #[account]
@@ -309,7 +296,7 @@ pub struct DepositRevenue<'info> {
     #[account(
         init,
         payer = artist_authority,
-        space = 8 + 32 + 8 + 8 + 8 + 8 + 8,
+        space = 8 + 32 + 8 + 8 + 8 + 8 + 8 + 8,
         seeds = [
             b"epoch",
             rev_config.project.as_ref(),

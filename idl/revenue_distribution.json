@@ -841,6 +841,11 @@
       "code": 6009,
       "name": "AlreadyClaimed",
       "msg": "Already claimed for this epoch"
+    },
+    {
+      "code": 6010,
+      "name": "EpochNotFullyClaimed",
+      "msg": "Epoch has unclaimed revenue; cannot close"
     }
   ],
   "types": [
@@ -872,6 +877,10 @@
           {
             "name": "total_claimed",
             "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
           }
         ]
       }
