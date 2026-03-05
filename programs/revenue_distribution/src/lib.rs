@@ -8,7 +8,7 @@ use project_escrow::{Project, ProjectStatus};
 use rwa_token::RwaState;
 
 #[cfg(not(feature = "devnet"))]
-declare_id!("G6LyqAfthk5xhNzCoMLGaMka1Sb5WxisLnwZ8RsbqazP");
+declare_id!("dWGsAdXVDbU7oEoZPKu5rbCBDnSLvaoCjLAXBVr7i7Q");
 #[cfg(feature = "devnet")]
 declare_id!("C7qE7zNk7YA9rLhqRejFpMPH9y2Ds8rYZs2WEyhxUUWK");
 
@@ -407,6 +407,7 @@ pub struct ClaimRevenue<'info> {
 
 #[derive(Accounts)]
 pub struct CloseEpoch<'info> {
+    #[account(mut)]
     pub authority: Signer<'info>,
 
     #[account(
@@ -415,6 +416,10 @@ pub struct CloseEpoch<'info> {
     )]
     pub rev_config: Account<'info, RevenueConfig>,
 
+    #[account(
+        mut,
+        close = authority,
+    )]
     pub distribution_epoch: Account<'info, DistributionEpoch>,
 
     /// CHECK: vault authority PDA

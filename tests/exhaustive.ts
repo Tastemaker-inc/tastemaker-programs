@@ -2427,7 +2427,7 @@ describe("tastemaker-programs exhaustive", function () {
         .rpc();
       await new Promise((r) => setTimeout(r, 500));
       const epochAfter = await provider.connection.getAccountInfo(distributionEpochPda);
-      expect(epochAfter).to.be.null;
+      expect(epochAfter, "distribution_epoch account should be closed (rent reclaimed)").to.be.null;
     });
   });
 
