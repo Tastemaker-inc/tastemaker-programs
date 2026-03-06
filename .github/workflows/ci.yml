@@ -7,23 +7,32 @@ on:
     branches: [main]
   workflow_dispatch: {}  # Allows "Run workflow" from Actions tab and re-running test job
 
+permissions:
+  contents: read
+
 env:
   SOLANA_VERSION: "3.0.8"
+  SOLANA_SHA256: "3eb065c815d29c0dd1be50ba21d470ea6cba7bc242584441cb282f994c417097"
   ANCHOR_VERSION: "0.32.1"
+  ANCHOR_SHA256: "5f25b850ce80278507a98947833fcd48423391f6d145046ffb0c5fd130dec436"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc  # v2.15.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7  # stable
         with:
           components: clippy
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: |
             ~/.cargo/registry
@@ -38,6 +47,7 @@ jobs:
           curl -sSfL --retry 5 --retry-delay 5 -L \
             "https://github.com/anza-xyz/agave/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
             -o /tmp/solana.tar.bz2
+          echo "${SOLANA_SHA256}  /tmp/solana.tar.bz2" | sha256sum -c -
           tar -xjf /tmp/solana.tar.bz2 -C /tmp
           echo "/tmp/solana-release/bin" >> $GITHUB_PATH
 
@@ -53,11 +63,12 @@ jobs:
             echo "Attempt $i failed, waiting 15s before retry..."
             sleep 15
           done
+          echo "${ANCHOR_SHA256}  /usr/local/bin/anchor" | sha256sum -c -
           chmod +x /usr/local/bin/anchor
           anchor --version
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: "20"
           cache: "npm"
@@ -90,13 +101,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc  # v2.15.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7  # stable
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: |
             ~/.cargo/registry
@@ -111,6 +126,7 @@ jobs:
           curl -sSfL --retry 5 --retry-delay 5 -L \
             "https://github.com/anza-xyz/agave/releases/download/v${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
             -o /tmp/solana.tar.bz2
+          echo "${SOLANA_SHA256}  /tmp/solana.tar.bz2" | sha256sum -c -
           tar -xjf /tmp/solana.tar.bz2 -C /tmp
           echo "/tmp/solana-release/bin" >> $GITHUB_PATH
 
@@ -126,11 +142,12 @@ jobs:
             echo "Attempt $i failed, waiting 15s before retry..."
             sleep 15
           done
+          echo "${ANCHOR_SHA256}  /usr/local/bin/anchor" | sha256sum -c -
           chmod +x /usr/local/bin/anchor
           anchor --version
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: "20"
           cache: "npm"
