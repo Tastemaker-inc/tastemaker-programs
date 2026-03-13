@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: TasteMaker
+    url: https://tastemaker.music
+    about: Project website
+  - name: Security
+    url: mailto:security@tastemaker.music
+    about: Report security vulnerabilities privately

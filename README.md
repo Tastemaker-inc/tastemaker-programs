@@ -104,6 +104,8 @@ Vulnerabilities in the on-chain programs should be reported to **security@tastem
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, code style, and the PR process.
 
+**First-time contributors:** Check out our [good first issues](https://github.com/Tastemaker-inc/tastemaker-programs/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) — documentation tasks you can complete in 1–2 hours.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
