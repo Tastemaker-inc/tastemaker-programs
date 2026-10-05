@@ -14,6 +14,7 @@ On-chain programs for [TasteMaker](https://tastemaker.music): platform token ($T
 | **rwa_token** | Per-project RWA mint; backers claim by share; close to freeze. |
 | **revenue_distribution** | Per-project revenue config; artist deposits $TASTE, holders claim proportional share by epoch; close_epoch sweeps unclaimed. |
 | **otc_market** | OTC marketplace: create/cancel/accept offers for IOU and RWA tokens, priced in $TASTE (Token-2022 only). |
+| **rwa_transfer_hook** | Token-2022 transfer hook for RWA mints (spl-transfer-hook-interface). Approves all transfers today; upgradeable for compliance rules such as whitelists and holding periods. |
 
 ## Requirements
 
