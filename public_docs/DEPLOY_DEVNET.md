@@ -1,16 +1,17 @@
 # Deploy to Devnet (Public)
 
-**For upgrades of existing devnet programs:** Use the flow in the monorepo rule **`.cursor/rules/devnet-deploy-upgrade.mdc`**: build with `cargo build-sbf --features devnet` per program (NOT `anchor build`), then `solana program deploy target/deploy/<program>.so --program-id <DEVNET_PROGRAM_ID> --upgrade-authority ~/.config/solana/devnet-deploy.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`. Do not use `anchor deploy -p` for upgrades (it uses keypair-derived program IDs, not the live devnet IDs).
+**For upgrades of existing devnet programs:** Use the flow in the monorepo rule **`.cursor/rules/devnet-deploy-upgrade.mdc`**: build with `cargo build-sbf --features devnet` per program (NOT `anchor build`), then `solana program deploy target/deploy/<program>.so --program-id <DEVNET_PROGRAM_ID> --upgrade-authority ~/.config/solana/tastemaker-upgrade-authority.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`. Do not use `anchor deploy -p` for upgrades (it uses keypair-derived program IDs, not the live devnet IDs).
 
 ## Prerequisites
 
 - Anchor CLI 0.32.x
 - Solana CLI
-- Devnet keypair: **`~/.config/solana/devnet-deploy.json`** (pubkey `F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU`). This is the upgrade authority for all devnet programs.
+- Upgrade authority: **`~/.config/solana/tastemaker-upgrade-authority.json`** (pubkey `B4tSBV8oFwGKSaXE4r7gnho6Yi2SxBx8skJ3qVRCXgMz`) for all devnet programs.
+- Fee payer: **`~/.config/solana/devnet-deploy.json`** (pubkey `F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU`), passed as `--keypair`.
 
-## Funding the upgrade authority
+## Funding the fee payer
 
-Deployment and upgrades require SOL on the **upgrade authority** keypair (see `Anchor.toml` `[programs.devnet]` and the keypair used with `--upgrade-authority`). If the balance is 0, `anchor deploy` or `solana program deploy` will fail with "Attempt to debit an account but found no record of a prior credit."
+Deployment and upgrades require SOL on the **fee payer** (the `--keypair`). If the balance is 0, `solana program deploy` will fail with "Attempt to debit an account but found no record of a prior credit." The upgrade authority only signs and needs no SOL.
 
 **Current devnet upgrade authority (fund this for testnet SOL):**
 
@@ -20,13 +21,14 @@ F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU
 
 - Check balance: `solana balance --url devnet F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU`
 - Airdrop (devnet): `solana airdrop 5 F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU --url devnet` (may be rate-limited; use a devnet faucet or wait and retry).
-- Then run the deploy flow below. Use the keypair whose pubkey is this address (e.g. `~/.config/solana/devnet-deploy.json` if that matches; otherwise the keypair you used for the initial deploy).
+- Then run the deploy flow below.
 
 ## Deploy flow
 
-Use **`~/.config/solana/devnet-deploy.json`** as `<DEPLOY_KEYPAIR>` (pubkey `F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU`).
+Use **`~/.config/solana/devnet-deploy.json`** as the fee payer (`--keypair`) and **`~/.config/solana/tastemaker-upgrade-authority.json`** as `--upgrade-authority`.
 
-1. Verify key + balance:
+1. Verify keys + balance:
+   - `solana-keygen pubkey ~/.config/solana/tastemaker-upgrade-authority.json` (must be `B4tSBV8oFwGKSaXE4r7gnho6Yi2SxBx8skJ3qVRCXgMz`)
    - `solana-keygen pubkey ~/.config/solana/devnet-deploy.json`
    - `solana balance --url devnet --keypair ~/.config/solana/devnet-deploy.json`
 2. Build for devnet (so binaries have devnet `declare_id!`):
@@ -42,11 +44,11 @@ Use **`~/.config/solana/devnet-deploy.json`** as `<DEPLOY_KEYPAIR>` (pubkey `F5u
    cargo build-sbf --manifest-path programs/rwa_transfer_hook/Cargo.toml --features devnet --sbf-out-dir target/deploy
    ```
 3. Deploy/upgrade programs on devnet (use these exact devnet program IDs from `Anchor.toml [programs.devnet]`):
-   - `solana program deploy target/deploy/project_escrow.so --program-id bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym --upgrade-authority ~/.config/solana/devnet-deploy.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
-   - `solana program deploy target/deploy/governance.so --program-id AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK --upgrade-authority ~/.config/solana/devnet-deploy.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
-   - `solana program deploy target/deploy/otc_market.so --program-id 6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN --upgrade-authority ~/.config/solana/devnet-deploy.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
-   - `solana program deploy target/deploy/rwa_token.so --program-id GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE --upgrade-authority ~/.config/solana/devnet-deploy.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
-   - `solana program deploy target/deploy/taste_token.so --program-id 2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo --upgrade-authority ~/.config/solana/devnet-deploy.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
+   - `solana program deploy target/deploy/project_escrow.so --program-id bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym --upgrade-authority ~/.config/solana/tastemaker-upgrade-authority.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
+   - `solana program deploy target/deploy/governance.so --program-id AGP7BofJoJco4wTR6jaM1mf28z2UuV6Xj9aN4RBY9gnK --upgrade-authority ~/.config/solana/tastemaker-upgrade-authority.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
+   - `solana program deploy target/deploy/otc_market.so --program-id 6FM7VKFLyzxubAhCY58rR1R42tuuVNY7QdAtNTq65EjN --upgrade-authority ~/.config/solana/tastemaker-upgrade-authority.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
+   - `solana program deploy target/deploy/rwa_token.so --program-id GqSR1FPPjaTH4hzjm5kpejh3dUdTQtdufaz1scU5ZkvE --upgrade-authority ~/.config/solana/tastemaker-upgrade-authority.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
+   - `solana program deploy target/deploy/taste_token.so --program-id 2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo --upgrade-authority ~/.config/solana/tastemaker-upgrade-authority.json --keypair ~/.config/solana/devnet-deploy.json --url devnet`
 4. Verify (confirm `Last Deployed In Slot` and `Authority` = F5u4r8NCAqQ526WcoNX4KY4qBke1hWFMcrMaTRNm1dBU):
    - `solana program show 2c6qsaK5o1mjUxSvJmfCDzfCcaim8c9hEmNZrBbc4Bxo --url devnet`
    - `solana program show bJch5cLcCHTypbXrvRMr9MxU5HmN2LBRwF8wR4dXpym --url devnet`
@@ -66,7 +68,8 @@ After deploying, run these once so devnet can use short voting periods and early
 
 1. **Governance config** (enables early finalize + short min voting period):
    - From `tastemaker-programs/`:  
-     `SOLANA_RPC_URL=https://api.devnet.solana.com SOLANA_KEYPAIR=~/.config/solana/devnet-deploy.json npm run init-governance-config`
+     `SOLANA_RPC_URL=https://api.devnet.solana.com SOLANA_KEYPAIR=~/.config/solana/tastemaker-upgrade-authority.json npm run init-governance-config`
+   - `initialize_config` only accepts the program's upgrade authority, and that key pays the fee here, so give it a little devnet SOL first.
    - Optional env: `MIN_VOTING_PERIOD_SECS=60` (default 60); `GOVERNANCE_PROGRAM_ID` to override program id.
 
 2. **RWA config** (required before any project can complete — finalize last milestone creates the RWA mint):
@@ -96,7 +99,7 @@ cargo build-sbf --manifest-path programs/revenue_distribution/Cargo.toml --featu
 solana program deploy target/deploy/revenue_distribution.so \
   --program-id ~/.config/solana/revenue_distribution-devnet.json \
   --keypair ~/.config/solana/devnet-deploy.json \
-  --upgrade-authority ~/.config/solana/devnet-deploy.json \
+  --upgrade-authority ~/.config/solana/tastemaker-upgrade-authority.json \
   --url devnet
 
 # rwa_transfer_hook (build with devnet feature so binary has devnet declare_id)
@@ -104,7 +107,7 @@ cargo build-sbf --manifest-path programs/rwa_transfer_hook/Cargo.toml --features
 solana program deploy target/deploy/rwa_transfer_hook.so \
   --program-id ~/.config/solana/rwa_transfer_hook-devnet.json \
   --keypair ~/.config/solana/devnet-deploy.json \
-  --upgrade-authority ~/.config/solana/devnet-deploy.json \
+  --upgrade-authority ~/.config/solana/tastemaker-upgrade-authority.json \
   --url devnet
 ```
 
