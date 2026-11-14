@@ -24,7 +24,8 @@
     "@metaplex-foundation/umi": "^1.2.0",
     "@metaplex-foundation/umi-bundle-defaults": "^1.2.0",
     "@solana/spl-token": "^0.4.9",
-    "@solana/web3.js": "^1.95.3"
+    "@solana/web3.js": "^1.95.3",
+    "bigint-buffer": "file:./vendor/bigint-buffer"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.6",
@@ -33,12 +34,17 @@
     "@types/mocha": "^10.0.6",
     "chai": "^4.5.0",
     "chai-as-promised": "^8.0.2",
-    "esbuild": "^0.27.3",
+    "esbuild": "^0.28.2",
     "mocha": "^10.7.3",
     "prettier": "^3.4.2",
     "ts-mocha": "^10.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
+  },
+  "overrides": {
+    "bigint-buffer": "$bigint-buffer",
+    "serialize-javascript": "^7",
+    "toml": "^5"
   },
   "engines": {
     "node": ">=18"
