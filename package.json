@@ -16,7 +16,8 @@
     "backfill-vote-weight-pdas": "ts-node scripts/backfill-vote-weight-pdas.ts",
     "add-taste-metadata": "ts-node scripts/add-taste-metadata.ts",
     "initialize-rwa-mint": "ts-node scripts/initialize-rwa-mint.ts",
-    "initialize-rwa-metadata": "ts-node scripts/initialize-rwa-metadata.ts"
+    "initialize-rwa-metadata": "ts-node scripts/initialize-rwa-metadata.ts",
+    "smoke-revenue-distribution": "ts-node scripts/smoke-revenue-distribution.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.1",
